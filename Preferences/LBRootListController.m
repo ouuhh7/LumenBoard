@@ -315,9 +315,14 @@ static NSDictionary *LBQueueTendiesImportAndWait(NSString *identifier, NSString 
             NSDictionary *attributes = sourceIsRegular ?
                 [NSFileManager.defaultManager attributesOfItemAtPath:sourceURL.path error:&error] : nil;
             unsigned long long size = [attributes[NSFileSize] unsignedLongLongValue];
+            NSString *selectedSourceSHA256 = nil;
             if (!sourceIsRegular || !attributes || size == 0 || size > LBMaxImportBytes) {
                 if (!error) error = [NSError errorWithDomain:@"LumenBoard" code:201 userInfo:@{
                     NSLocalizedDescriptionKey:@"The selected file is not a regular file, is empty, or exceeds the 300 MiB import limit."
+                }];
+            } else if (!(selectedSourceSHA256 = LBSHA256ForFile(sourceURL.path)).length) {
+                error = [NSError errorWithDomain:@"LumenBoard" code:206 userInfo:@{
+                    NSLocalizedDescriptionKey:@"Could not calculate SHA-256 for the selected source before copying."
                 }];
             } else if (LBEnsureUserDirectories(&error)) {
                 NSString *identifier = NSUUID.UUID.UUIDString.lowercaseString;
@@ -356,11 +361,37 @@ static NSDictionary *LBQueueTendiesImportAndWait(NSString *identifier, NSString 
                             @"validatorVersion":@"1.1.0",
                             @"installationState":[sourceType isEqualToString:@"tendies-unvalidated"] ? @"not-started" : @"not-applicable"
                         } mutableCopy];
-                        if (!sha256.length) {
-                            error = [NSError errorWithDomain:@"LumenBoard" code:202 userInfo:@{NSLocalizedDescriptionKey:@"Could not calculate SHA-256 for the stored source file."}];
+                        if (!sha256.length || ![sha256 isEqualToString:selectedSourceSHA256]) {
+                            error = [NSError errorWithDomain:@"LumenBoard" code:202 userInfo:@{
+                                NSLocalizedDescriptionKey:sha256.length ?
+                                    @"The source file changed while it was being copied (SHA-256 mismatch)." :
+                                    @"Could not calculate SHA-256 for the stored source file."
+                            }];
                         } else {
                             manifest[@"sha256"] = sha256;
+                            BOOL duplicateHandled = NO;
                             if ([sourceType isEqualToString:@"tendies-unvalidated"]) {
+                                NSArray<NSString *> *existingEntries = [NSFileManager.defaultManager contentsOfDirectoryAtPath:LBLibraryPath() error:nil] ?: @[];
+                                for (NSString *existingEntry in existingEntries) {
+                                    if ([existingEntry isEqualToString:identifier]) continue;
+                                    NSDictionary *existing = LBReadManagedManifest(existingEntry);
+                                    NSString *existingStatus = [existing[@"status"] isKindOfClass:NSString.class] ? existing[@"status"] : @"";
+                                    if ([existing[@"type"] isEqualToString:@"tendies-unvalidated"] &&
+                                        [existing[@"sha256"] isKindOfClass:NSString.class] &&
+                                        [existing[@"sha256"] caseInsensitiveCompare:sha256] == NSOrderedSame &&
+                                        ([existingStatus isEqualToString:@"imported"] || [existingStatus isEqualToString:@"registering"])) {
+                                        duplicateHandled = YES;
+                                        preserveItemDirectory = NO;
+                                        stored = YES;
+                                        finalStatus = existingStatus;
+                                        userMessage = [existingStatus isEqualToString:@"imported"] ?
+                                            @"This exact .tendies archive is already registered in PosterBoard. No duplicate wallpaper was created." :
+                                            @"This exact .tendies archive is already being registered. No second registration request was created.";
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!duplicateHandled && [sourceType isEqualToString:@"tendies-unvalidated"]) {
                                 manifest[@"status"] = @"validating";
                                 if (!LBWriteManagedManifest(manifest, itemDirectory, &error)) {
                                     // Do not enqueue a source that has no durable manifest.
@@ -423,7 +454,7 @@ static NSDictionary *LBQueueTendiesImportAndWait(NSString *identifier, NSString 
                                         LBWriteManagedManifest(manifest, itemDirectory, nil);
                                     }
                                 }
-                            } else {
+                            } else if (!duplicateHandled) {
                                 manifest[@"status"] = @"stored-only";
                                 stored = LBWriteManagedManifest(manifest, itemDirectory, &error);
                                 finalStatus = stored ? @"stored-only" : @"failed";
