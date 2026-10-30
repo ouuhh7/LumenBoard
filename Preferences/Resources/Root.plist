@@ -5,12 +5,12 @@
   <key>title</key><string>LumenBoard</string>
   <key>items</key>
   <array>
-    <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>Local library</string><key>footerText</key><string>Import stores the source file locally. Native PosterBoard installation is not enabled in this development baseline.</string></dict>
+    <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>Local library</string><key>footerText</key><string>Descriptor-format .tendies packages are validated, extracted, and submitted to the iOS 16 PosterBoard Collections installer. Photos and videos remain local source imports.</string></dict>
     <dict><key>cell</key><string>PSButtonCell</string><key>label</key><string>Import photo or video</string><key>action</key><string>importMediaTapped</string></dict>
     <dict><key>cell</key><string>PSButtonCell</string><key>label</key><string>Import .tendies package</string><key>action</key><string>importTendiesTapped</string></dict>
     <dict><key>cell</key><string>PSButtonCell</string><key>label</key><string>Manage / remove imported items</string><key>action</key><string>manageLibraryTapped</string></dict>
     <dict><key>cell</key><string>PSButtonCell</string><key>label</key><string>Refresh local library</string><key>action</key><string>refreshLibraryTapped</string></dict>
-    <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>Native integration</string><key>footerText</key><string>Disabled until the CAML/descriptor output is tested on iOS 16.7.16. Imported files will not appear in the iOS wallpaper gallery yet.</string></dict>
+    <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>Native integration</string><key>footerText</key><string>Native descriptor import targets iOS 16 structure version 59. Real wallpaper rendering and selection must still be verified on-device.</string></dict>
   </array>
 </dict>
 </plist>
