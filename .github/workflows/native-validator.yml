@@ -81,7 +81,6 @@ jobs:
       - name: Build rootless package
         run: |
           export THEOS="$HOME/theos"
-          export _THEOS_PLATFORM_DPKG_DEB=dpkg-deb
           make clean
           make package FINALPACKAGE=1
       - name: Verify Debian package
