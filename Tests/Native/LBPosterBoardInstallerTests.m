@@ -194,6 +194,23 @@
     [[NSFileManager defaultManager] removeItemAtPath:target error:nil];
 }
 
+
+- (void)testRejectsSymlinkInPosterBoardDestinationParent {
+    NSString *input = [self makeDescriptorGroupWithNames:@[@"Destination symlink"] missingFiles:[NSSet set]];
+    NSString *realParent = [self.temporaryRoot stringByAppendingPathComponent:@"real-store"];
+    NSError *error = nil;
+    XCTAssertTrue([[NSFileManager defaultManager] createDirectoryAtPath:realParent withIntermediateDirectories:YES attributes:nil error:&error], @"%@", error);
+    NSString *linkParent = [self.temporaryRoot stringByAppendingPathComponent:@"store-link"];
+    XCTAssertEqual(symlink(realParent.fileSystemRepresentation, linkParent.fileSystemRepresentation), 0);
+
+    NSString *descriptorRoot = [linkParent stringByAppendingPathComponent:@"descriptors"];
+    NSDictionary *result = [LBPosterBoardInstaller installExtractedDescriptorTreeAtPath:input descriptorRoot:descriptorRoot error:&error];
+    XCTAssertNil(result);
+    XCTAssertNotNil(error);
+    NSArray *published = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:realParent error:nil] ?: @[];
+    XCTAssertEqual(published.count, 0u);
+}
+
 - (void)testRejectsMultipleDescriptorGroupsInsteadOfMixingExtensions {
     NSString *input = [self makeDescriptorGroupWithNames:@[@"Collections"] missingFiles:[NSSet set]];
     NSString *other = [input stringByAppendingPathComponent:@"descriptor"];
