@@ -1,5 +1,7 @@
 #import <XCTest/XCTest.h>
 #import "../../Daemon/LBPosterBoardInstaller.h"
+#import <sys/stat.h>
+#import <unistd.h>
 
 @interface LBPosterBoardInstallerTests : XCTestCase
 @property(nonatomic, copy) NSString *temporaryRoot;
