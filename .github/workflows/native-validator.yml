@@ -60,13 +60,17 @@ jobs:
           export THEOS="$HOME/theos"
           "$THEOS/bin/update-theos"
           echo "THEOS=$THEOS" >> "$GITHUB_ENV"
-      - name: Configure Apple iPhoneOS SDK
+      - name: Install patched iOS 16.5 SDK with private framework stubs
         run: |
-          SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
-          SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
-          mkdir -p "$HOME/theos/sdks"
-          ln -s "$SDK_PATH" "$HOME/theos/sdks/iPhoneOS${SDK_VERSION}.sdk"
-          echo "Using Xcode iPhoneOS SDK $SDK_VERSION at $SDK_PATH"
+          set -euo pipefail
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/theos/sdks.git "$HOME/theos-sdks"
+          git -C "$HOME/theos-sdks" sparse-checkout set iPhoneOS16.5.sdk
+          cp -R "$HOME/theos-sdks/iPhoneOS16.5.sdk" "$HOME/theos/sdks/"
+          SDK="$HOME/theos/sdks/iPhoneOS16.5.sdk"
+          test -d "$SDK"
+          find "$SDK" -maxdepth 12 -path '*Preferences.framework*' -print | tee private-frameworks.txt
+          test -n "$(find "$SDK" -maxdepth 12 -path '*Preferences.framework*' -type f -print -quit)"
+          echo "Using patched Theos SDK $SDK"
       - name: Validate maintainer scripts and launch daemon plist
         run: |
           set -euo pipefail
