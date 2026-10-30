@@ -6,6 +6,8 @@
 #import <errno.h>
 #import <spawn.h>
 #import <sys/wait.h>
+#import <pwd.h>
+#import <stdio.h>
 #import <string.h>
 
 extern char **environ;
@@ -28,17 +30,60 @@ static BOOL LBIsDirectory(NSString *path) {
     return lstat(path.fileSystemRepresentation, &st) == 0 && S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode);
 }
 
-static BOOL LBEnsureDirectory(NSString *path, mode_t mode, NSError **error) {
-    if (LBIsDirectory(path)) return YES;
-    struct stat st;
-    if (lstat(path.fileSystemRepresentation, &st) == 0) {
-        if (error) *error = LBInstallError(10, [NSString stringWithFormat:@"Refusing a non-directory or symlink at %@", path]);
+static BOOL LBEnsureDirectoryTree(NSString *path, mode_t mode, NSError **error) {
+    NSString *normalized = path.stringByStandardizingPath;
+    if (![normalized hasPrefix:@"/"]) {
+        if (error) *error = LBInstallError(9, @"PosterBoard destination must be an absolute path.");
         return NO;
     }
-    if (mkdir(path.fileSystemRepresentation, mode) == 0) return YES;
-    if (errno == EEXIST && LBIsDirectory(path)) return YES;
-    if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
-    return NO;
+    NSMutableString *current = [NSMutableString string];
+    for (NSString *component in [normalized componentsSeparatedByString:@"/"]) {
+        if (!component.length) continue;
+        [current appendFormat:@"/%@", component];
+        NSString *candidate = [current copy];
+        struct stat st;
+        if (lstat(candidate.fileSystemRepresentation, &st) == 0) {
+            if (!S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode)) {
+                if (error) *error = LBInstallError(10, [NSString stringWithFormat:@"Refusing a non-directory or symlink at %@", candidate]);
+                return NO;
+            }
+            continue;
+        }
+        if (errno != ENOENT || mkdir(candidate.fileSystemRepresentation, mode) != 0) {
+            if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+            return NO;
+        }
+    }
+    return YES;
+}
+
+static BOOL LBSetMobileOwnership(NSString *root, NSError **error) {
+    struct passwd *mobile = getpwnam("mobile");
+    if (!mobile) {
+        if (error) *error = LBInstallError(11, @"The mobile user could not be resolved for PosterBoard descriptor ownership.");
+        return NO;
+    }
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSDirectoryEnumerator *enumerator = [fm enumeratorAtPath:root];
+    NSString *relative = nil;
+    NSMutableArray<NSString *> *paths = [NSMutableArray arrayWithObject:root];
+    while ((relative = enumerator.nextObject)) [paths addObject:[root stringByAppendingPathComponent:relative]];
+    // Change descendants before parents so the staged tree is readable when published.
+    for (NSString *path in [paths reverseObjectEnumerator]) {
+        struct stat st;
+        if (lstat(path.fileSystemRepresentation, &st) != 0 || S_ISLNK(st.st_mode) ||
+            (!S_ISDIR(st.st_mode) && !S_ISREG(st.st_mode))) {
+            if (error) *error = LBInstallError(12, [NSString stringWithFormat:@"Unsafe object in staged descriptor: %@", path]);
+            return NO;
+        }
+        mode_t mode = S_ISDIR(st.st_mode) ? 0755 : 0644;
+        if (chown(path.fileSystemRepresentation, mobile->pw_uid, mobile->pw_gid) != 0 ||
+            chmod(path.fileSystemRepresentation, mode) != 0) {
+            if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+            return NO;
+        }
+    }
+    return YES;
 }
 
 static BOOL LBWriteDataAtomically(NSData *data, NSString *path, NSError **error) {
@@ -117,8 +162,11 @@ static BOOL LBValidateDescriptorTree(NSString *root, NSError **error) {
     NSString *rolePath = [root stringByAppendingPathComponent:@"com.apple.posterkit.role.identifier"];
     NSString *providerInfoPath = [root stringByAppendingPathComponent:@"providerInfo.plist"];
     NSString *descriptorID = LBReadTrimmedString(descriptorIDPath);
-    if (!descriptorID.length || !NSScanner.scannerWithString(descriptorID).scanLongLong ||
-        !LBIsRegularFile(rolePath) || !LBIsRegularFile(providerInfoPath)) {
+    NSScanner *identifierScanner = descriptorID.length ? [NSScanner scannerWithString:descriptorID] : nil;
+    long long parsedIdentifier = 0;
+    BOOL numericDescriptorID = identifierScanner && [identifierScanner scanLongLong:&parsedIdentifier] &&
+        identifierScanner.isAtEnd && parsedIdentifier > 0;
+    if (!numericDescriptorID || !LBIsRegularFile(rolePath) || !LBIsRegularFile(providerInfoPath)) {
         if (error) *error = LBInstallError(22, @"Descriptor is missing its numeric root identifier, role identifier, or providerInfo.plist.");
         return NO;
     }
@@ -360,7 +408,7 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
     for (NSString *source in sourceRoots) if (!LBValidateDescriptorTree(source, error)) return nil;
 
     NSString *extensionRoot = descriptorRoot.stringByDeletingLastPathComponent;
-    if (!LBEnsureDirectory(extensionRoot, 0755, error) || !LBEnsureDirectory(descriptorRoot, 0755, error)) return nil;
+    if (!LBEnsureDirectoryTree(extensionRoot, 0755, error) || !LBEnsureDirectoryTree(descriptorRoot, 0755, error)) return nil;
     NSMutableSet<NSNumber *> *usedIDs = [NSMutableSet set];
     LBReadExistingNumericIdentifiers(descriptorRoot, usedIDs);
 
@@ -376,7 +424,8 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
         NSString *newUUID = NSUUID.UUID.UUIDString.uppercaseString;
         NSString *staged = [stagingRoot stringByAppendingPathComponent:newUUID];
         NSString *destination = [descriptorRoot stringByAppendingPathComponent:newUUID];
-        if (lstat(destination.fileSystemRepresentation, &(struct stat){0}) == 0) {
+        struct stat destinationStat;
+        if (lstat(destination.fileSystemRepresentation, &destinationStat) == 0 || errno != ENOENT) {
             localError = LBInstallError(61, @"Generated descriptor UUID unexpectedly collides with an existing item.");
             success = NO;
             break;
@@ -393,7 +442,7 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
             break;
         }
         [usedIDs addObject:@(identifier)];
-        if (!LBRewriteDescriptorIdentifiers(staged, identifier, &localError)) { success = NO; break; }
+        if (!LBRewriteDescriptorIdentifiers(staged, identifier, &localError) || !LBSetMobileOwnership(staged, &localError)) { success = NO; break; }
         [stagedPaths addObject:staged];
         [publishedPaths addObject:destination];
         [publishedIdentifiers addObject:newUUID];
