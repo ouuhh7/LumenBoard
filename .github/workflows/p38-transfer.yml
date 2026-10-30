@@ -1,0 +1,198 @@
+name: P38 temporary Git mirror transfer
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: p38-lumenboard-transfer
+  cancel-in-progress: false
+
+jobs:
+  mirror-verify-transfer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Prepare workspace and Git LFS
+        shell: bash
+        run: |
+          set -euo pipefail
+          git --version
+          git lfs version
+          git lfs install --local
+
+      - name: Clone full source mirror and validate original refs
+        shell: bash
+        env:
+          SOURCE_URL: https://github.com/iuyghi/LumenBoard.git
+          EXPECTED_MAIN: c6392551bebc5803e811449de35cd56374657b1e
+          EXPECTED_WORK: 4f474e7b3f1e4f11a15f6679e688e6652f3fba49
+          EXPECTED_RECOVERY: 4b9a5e1f0473e6918283bc6afa065e3f25b4e66a
+          ORIGINAL_COMMIT: 5c9bfd516d93243d3bd7625839b39e0e68f6c9fb
+        run: |
+          set -euo pipefail
+          git clone --mirror "$SOURCE_URL" "$RUNNER_TEMP/LumenBoard-source-mirror.git"
+          cd "$RUNNER_TEMP/LumenBoard-source-mirror.git"
+
+          test "$(git rev-parse refs/heads/main)" = "$EXPECTED_MAIN"
+          test "$(git rev-parse refs/heads/work/tendies-native-validation)" = "$EXPECTED_WORK"
+          test "$(git rev-parse refs/heads/recovery/original-bundle-2026-10-30)" = "$EXPECTED_RECOVERY"
+
+          git cat-file -e "${ORIGINAL_COMMIT}^{commit}"
+          git merge-base --is-ancestor "$ORIGINAL_COMMIT" refs/heads/main
+          git merge-base --is-ancestor "$ORIGINAL_COMMIT" refs/heads/work/tendies-native-validation
+          git fsck --full --strict
+
+          git lfs fetch --all origin
+          git lfs ls-files --all > "$RUNNER_TEMP/lumenboard-lfs-manifest.txt"
+
+          {
+            echo "## Source mirror verification"
+            echo "- main: $(git rev-parse refs/heads/main)"
+            echo "- work/tendies-native-validation: $(git rev-parse refs/heads/work/tendies-native-validation)"
+            echo "- recovery/original-bundle-2026-10-30: $(git rev-parse refs/heads/recovery/original-bundle-2026-10-30)"
+            echo "- original commit: $ORIGINAL_COMMIT"
+            echo "- original commit reachable from main and work: yes"
+            echo "- git fsck --full --strict: passed"
+            echo "- Git LFS entries: $(wc -l < "$RUNNER_TEMP/lumenboard-lfs-manifest.txt")"
+            echo
+            echo "### Gitlinks / submodules"
+            for ref in refs/heads/main refs/heads/work/tendies-native-validation refs/heads/recovery/original-bundle-2026-10-30; do
+              echo "#### $ref"
+              git ls-tree -r "$ref" | awk '$1 == "160000" { print }'
+              git ls-tree -r "$ref" | awk '$1 == "100644" || $1 == "100755" { if ($4 == ".gitmodules") print }'
+            done
+          } > "$RUNNER_TEMP/LumenBoard-P38-report.md"
+
+      - name: Create and independently verify bundle and mirror backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/LumenBoard-source-mirror.git"
+          git bundle create "$RUNNER_TEMP/LumenBoard-source-all.bundle" --all
+          git bundle verify "$RUNNER_TEMP/LumenBoard-source-all.bundle"
+
+          git clone --mirror "$RUNNER_TEMP/LumenBoard-source-all.bundle" "$RUNNER_TEMP/LumenBoard-independent-clone.git"
+          git -C "$RUNNER_TEMP/LumenBoard-independent-clone.git" fsck --full --strict
+
+          test "$(git -C "$RUNNER_TEMP/LumenBoard-independent-clone.git" rev-parse refs/heads/main)" = "c6392551bebc5803e811449de35cd56374657b1e"
+          test "$(git -C "$RUNNER_TEMP/LumenBoard-independent-clone.git" rev-parse refs/heads/work/tendies-native-validation)" = "4f474e7b3f1e4f11a15f6679e688e6652f3fba49"
+          test "$(git -C "$RUNNER_TEMP/LumenBoard-independent-clone.git" rev-parse refs/heads/recovery/original-bundle-2026-10-30)" = "4b9a5e1f0473e6918283bc6afa065e3f25b4e66a"
+          git -C "$RUNNER_TEMP/LumenBoard-independent-clone.git" merge-base --is-ancestor 5c9bfd516d93243d3bd7625839b39e0e68f6c9fb refs/heads/main
+          git -C "$RUNNER_TEMP/LumenBoard-independent-clone.git" merge-base --is-ancestor 5c9bfd516d93243d3bd7625839b39e0e68f6c9fb refs/heads/work/tendies-native-validation
+
+          tar -czf "$RUNNER_TEMP/LumenBoard-source-mirror.tar.gz" -C "$RUNNER_TEMP" LumenBoard-source-mirror.git
+          sha256sum "$RUNNER_TEMP/LumenBoard-source-all.bundle" "$RUNNER_TEMP/LumenBoard-source-mirror.tar.gz" > "$RUNNER_TEMP/LumenBoard-P38-SHA256SUMS.txt"
+
+          {
+            echo
+            echo "## Independent backup verification"
+            echo "- git bundle verify: passed"
+            echo "- independent mirror clone: passed"
+            echo "- independent clone git fsck --full --strict: passed"
+            echo "- all three expected branch SHAs in independent clone: exact"
+            echo "- original commit reachable from main and work in independent clone: yes"
+            echo "- bundle SHA-256: $(sha256sum "$RUNNER_TEMP/LumenBoard-source-all.bundle" | cut -d' ' -f1)"
+            echo "- mirror archive SHA-256: $(sha256sum "$RUNNER_TEMP/LumenBoard-source-mirror.tar.gz" | cut -d' ' -f1)"
+          } >> "$RUNNER_TEMP/LumenBoard-P38-report.md"
+
+      - name: Upload complete Git backup artifacts before destination writes
+        uses: actions/upload-artifact@v4
+        with:
+          name: LumenBoard-P38-Git-Backup
+          path: |
+            ${{ runner.temp }}/LumenBoard-source-all.bundle
+            ${{ runner.temp }}/LumenBoard-source-mirror.tar.gz
+            ${{ runner.temp }}/LumenBoard-P38-SHA256SUMS.txt
+            ${{ runner.temp }}/LumenBoard-P38-report.md
+            ${{ runner.temp }}/lumenboard-lfs-manifest.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Transfer only the three requested refs without force
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BOOTSTRAP_SHA: SET_AFTER_CREATE_FILE_COMMIT
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/LumenBoard-source-mirror.git"
+
+          DESTINATION_URL="https://x-access-token:${GH_TOKEN}@github.com/ouuhh7/LumenBoard.git"
+          git remote add destination "$DESTINATION_URL"
+
+          current_main="$(git ls-remote destination refs/heads/main | awk '{print $1}')"
+          if [ "$current_main" = "$BOOTSTRAP_SHA" ]; then
+            git push destination :refs/heads/main
+          elif [ "$current_main" = "c6392551bebc5803e811449de35cd56374657b1e" ]; then
+            echo "main already equals the required source SHA; leaving it unchanged"
+          elif [ -z "$current_main" ]; then
+            echo "main is absent; ready for a non-force create"
+          else
+            echo "Unexpected main head on destination: $current_main" >&2
+            exit 1
+          fi
+
+          overall=0
+          for pair in \
+            "main c6392551bebc5803e811449de35cd56374657b1e" \
+            "work/tendies-native-validation 4f474e7b3f1e4f11a15f6679e688e6652f3fba49" \
+            "recovery/original-bundle-2026-10-30 4b9a5e1f0473e6918283bc6afa065e3f25b4e66a"; do
+            branch="${pair%% *}"
+            expected="${pair#* }"
+            actual="$(git ls-remote destination "refs/heads/$branch" | awk '{print $1}')"
+            if [ "$actual" = "$expected" ]; then
+              echo "$branch already matches expected SHA"
+              continue
+            fi
+            if [ -n "$actual" ]; then
+              echo "Refusing to overwrite unexpected destination ref $branch at $actual" >&2
+              overall=1
+              continue
+            fi
+            if git push destination "refs/heads/$branch:refs/heads/$branch"; then
+              echo "PUSH_OK $branch $expected"
+            else
+              echo "PUSH_FAILED $branch" >&2
+              overall=1
+            fi
+          done
+          exit "$overall"
+
+      - name: Verify destination refs, ancestry, and LFS transfer
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/LumenBoard-source-mirror.git"
+          DESTINATION_URL="https://x-access-token:${GH_TOKEN}@github.com/ouuhh7/LumenBoard.git"
+          git remote remove destination || true
+          git remote add destination "$DESTINATION_URL"
+
+          git lfs push --all destination
+
+          git fetch destination \
+            refs/heads/main:refs/remotes/destination/main \
+            refs/heads/work/tendies-native-validation:refs/remotes/destination/work/tendies-native-validation \
+            refs/heads/recovery/original-bundle-2026-10-30:refs/remotes/destination/recovery/original-bundle-2026-10-30
+
+          test "$(git rev-parse refs/remotes/destination/main)" = "c6392551bebc5803e811449de35cd56374657b1e"
+          test "$(git rev-parse refs/remotes/destination/work/tendies-native-validation)" = "4f474e7b3f1e4f11a15f6679e688e6652f3fba49"
+          test "$(git rev-parse refs/remotes/destination/recovery/original-bundle-2026-10-30)" = "4b9a5e1f0473e6918283bc6afa065e3f25b4e66a"
+          git merge-base --is-ancestor 5c9bfd516d93243d3bd7625839b39e0e68f6c9fb refs/remotes/destination/main
+          git merge-base --is-ancestor 5c9bfd516d93243d3bd7625839b39e0e68f6c9fb refs/remotes/destination/work/tendies-native-validation
+
+          {
+            echo
+            echo "## Destination verification"
+            echo "- main: $(git rev-parse refs/remotes/destination/main)"
+            echo "- work/tendies-native-validation: $(git rev-parse refs/remotes/destination/work/tendies-native-validation)"
+            echo "- recovery/original-bundle-2026-10-30: $(git rev-parse refs/remotes/destination/recovery/original-bundle-2026-10-30)"
+            echo "- all three remote SHAs exact: yes"
+            echo "- original commit reachable from main and work: yes"
+            echo "- Git LFS upload step completed"
+          } >> "$RUNNER_TEMP/LumenBoard-P38-report.md"
