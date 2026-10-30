@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+/bin/launchctl bootout system/com.iuyghi.lumenboardd >/dev/null 2>&1 || true
+/usr/bin/killall lumenboardd >/dev/null 2>&1 || true
+exit 0
