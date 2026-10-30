@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: work/tendies-native-validation
+          ref: ${{ github.sha }}
       - name: Select Xcode
         run: |
           xcode-select -p
@@ -51,14 +51,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: work/tendies-native-validation
+          ref: ${{ github.sha }}
       - name: Install packaging tools
         run: brew install ldid dpkg
       - name: Install Theos
         run: |
           git clone --depth 1 https://github.com/theos/theos.git "$HOME/theos"
-          "$HOME/theos/bin/update-theos"
-          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+          export THEOS="$HOME/theos"
+          "$THEOS/bin/update-theos"
+          echo "THEOS=$THEOS" >> "$GITHUB_ENV"
       - name: Configure Apple iPhoneOS SDK
         run: |
           SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
@@ -67,13 +68,6 @@ jobs:
           ln -s "$SDK_PATH" "$HOME/theos/sdks/iPhoneOS${SDK_VERSION}.sdk"
           echo "Using Xcode iPhoneOS SDK $SDK_VERSION at $SDK_PATH"
       - name: Validate maintainer scripts and launch daemon plist
-        run: |
-          set -euo pipefail
-          sh -n layout/DEBIAN/postinst
-          sh -n layout/DEBIAN/prerm
-          plutil -lint layout/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist
-          grep -q "/var/jb/usr/libexec/lumenboardd" layout/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist
-      - name: Validate package scripts and LaunchDaemon plist
         run: |
           set -euo pipefail
           sh -n layout/DEBIAN/postinst
