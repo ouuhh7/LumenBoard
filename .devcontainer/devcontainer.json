@@ -1,0 +1,6 @@
+{
+  "name": "LumenBoard P38 temporary transfer runner",
+  "postCreateCommand": "bash .devcontainer/p38-transfer.sh",
+  "waitFor": "postCreateCommand",
+  "shutdownAction": "stopContainer"
+}
