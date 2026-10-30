@@ -115,7 +115,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          BOOTSTRAP_SHA: SET_AFTER_CREATE_FILE_COMMIT
+          BOOTSTRAP_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP/LumenBoard-source-mirror.git"
@@ -173,7 +173,8 @@ jobs:
           git remote remove destination || true
           git remote add destination "$DESTINATION_URL"
 
-          git lfs push --all destination
+          lfs_failed=0
+          git lfs push --all destination || lfs_failed=1
 
           git fetch destination \
             refs/heads/main:refs/remotes/destination/main \
@@ -194,5 +195,6 @@ jobs:
             echo "- recovery/original-bundle-2026-10-30: $(git rev-parse refs/remotes/destination/recovery/original-bundle-2026-10-30)"
             echo "- all three remote SHAs exact: yes"
             echo "- original commit reachable from main and work: yes"
-            echo "- Git LFS upload step completed"
+            echo "- Git LFS upload step: $([ "$lfs_failed" -eq 0 ] && echo passed || echo FAILED)"
           } >> "$RUNNER_TEMP/LumenBoard-P38-report.md"
+          test "$lfs_failed" -eq 0
