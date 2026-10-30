@@ -5,6 +5,8 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <sys/stat.h>
 #import <unistd.h>
+#import <errno.h>
+#import <CoreFoundation/CoreFoundation.h>
 
 static NSString * const LBManifestName = @"manifest.plist";
 static const unsigned long long LBMaxImportBytes = 300ULL * 1024ULL * 1024ULL;
@@ -40,6 +42,72 @@ static NSDictionary *LBReadManagedManifest(NSString *entry) {
     id identifier = loaded[@"identifier"];
     if (![identifier isKindOfClass:NSString.class] || [identifier caseInsensitiveCompare:entry] != NSOrderedSame) return nil;
     return (NSDictionary *)loaded;
+}
+
+
+static BOOL LBWriteManagedManifest(NSMutableDictionary *manifest, NSString *itemDirectory, NSError **error) {
+    NSData *data = [NSPropertyListSerialization dataWithPropertyList:manifest
+        format:NSPropertyListBinaryFormat_v1_0 options:0 error:error];
+    NSString *path = [itemDirectory stringByAppendingPathComponent:LBManifestName];
+    if (!data || ![data writeToFile:path options:NSDataWritingAtomic error:error]) return NO;
+    chmod(path.fileSystemRepresentation, 0600);
+    chmod(itemDirectory.fileSystemRepresentation, 0700);
+    return YES;
+}
+
+static NSDictionary *LBQueueTendiesImportAndWait(NSString *identifier, NSString **requestIDOut, NSError **error) {
+    if (!LBEnsureDaemonDirectories(error)) return nil;
+    NSString *requestID = NSUUID.UUID.UUIDString.lowercaseString;
+    NSDictionary *request = @{
+        @"requestID": requestID,
+        @"action": @"import-tendies",
+        @"identifier": identifier,
+        @"created": [NSDate date]
+    };
+    NSData *data = [NSPropertyListSerialization dataWithPropertyList:request
+        format:NSPropertyListBinaryFormat_v1_0 options:0 error:error];
+    if (!data) return nil;
+    NSString *requestPath = [LBRequestsPath() stringByAppendingPathComponent:[requestID stringByAppendingPathExtension:@"plist"]];
+    if (![data writeToFile:requestPath options:NSDataWritingAtomic error:error] ||
+        chmod(requestPath.fileSystemRepresentation, 0600) != 0) {
+        if (error && !*error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+        [NSFileManager.defaultManager removeItemAtPath:requestPath error:nil];
+        return nil;
+    }
+    if (requestIDOut) *requestIDOut = requestID;
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+        (__bridge CFStringRef)LBDarwinReloadNotification(), NULL, NULL, true);
+
+    NSString *completionPath = [LBCompletedPath() stringByAppendingPathComponent:[requestID stringByAppendingPathExtension:@"plist"]];
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:90.0];
+    while ([deadline timeIntervalSinceNow] > 0) {
+        struct stat st;
+        if (lstat(completionPath.fileSystemRepresentation, &st) == 0) {
+            if (!S_ISREG(st.st_mode) || S_ISLNK(st.st_mode) || st.st_size <= 0 || st.st_size > 1024 * 1024) {
+                if (error) *error = [NSError errorWithDomain:@"LumenBoard" code:210 userInfo:@{NSLocalizedDescriptionKey:@"The daemon completion record is not a safe regular file."}];
+                return nil;
+            }
+            NSDictionary *completion = [NSDictionary dictionaryWithContentsOfFile:completionPath];
+            [NSFileManager.defaultManager removeItemAtPath:completionPath error:nil];
+            if (![completion isKindOfClass:NSDictionary.class] ||
+                ![completion[@"requestID"] isEqualToString:requestID] ||
+                ![completion[@"finished"] boolValue]) {
+                if (error) *error = [NSError errorWithDomain:@"LumenBoard" code:211 userInfo:@{NSLocalizedDescriptionKey:@"The daemon returned an invalid completion record."}];
+                return nil;
+            }
+            if (![completion[@"success"] boolValue]) {
+                NSString *message = [completion[@"error"] isKindOfClass:NSString.class] ? completion[@"error"] : @"The PosterBoard daemon rejected the import.";
+                NSInteger code = [completion[@"errorCode"] respondsToSelector:@selector(integerValue)] ? [completion[@"errorCode"] integerValue] : 212;
+                if (error) *error = [NSError errorWithDomain:@"LumenBoard.PosterBoard" code:code userInfo:@{NSLocalizedDescriptionKey:message}];
+            }
+            return completion;
+        }
+        usleep(250000);
+    }
+    if (error) *error = [NSError errorWithDomain:@"LumenBoard.PosterBoard" code:213 userInfo:@{
+        NSLocalizedDescriptionKey:@"PosterBoard registration is still queued. The source and extracted descriptors were preserved; use Refresh local library to check again."
+    }];
+    return @{@"requestID":requestID, @"success":@NO, @"timedOut":@YES};
 }
 
 @implementation LumenBoardRootListController
@@ -123,16 +191,43 @@ static NSDictionary *LBReadManagedManifest(NSString *entry) {
 
 - (void)refreshLibraryTapped {
     NSError *error = nil;
-    if (!LBEnsureUserDirectories(&error)) {
-        [self showMessage:@"Library error" message:error.localizedDescription ?: @"Could not access the local library."];
+    if (!LBEnsureDaemonDirectories(&error)) {
+        [self showMessage:@"Library error" message:error.localizedDescription ?: @"Could not access the local library and daemon queue."];
         return;
     }
     NSArray<NSString *> *entries = [NSFileManager.defaultManager contentsOfDirectoryAtPath:LBLibraryPath() error:&error] ?: @[];
-    NSUInteger count = 0;
+    NSUInteger imported = 0, registering = 0, failed = 0, stored = 0;
     for (NSString *entry in entries) {
-        if (LBReadManagedManifest(entry)) count++;
+        NSMutableDictionary *manifest = [LBReadManagedManifest(entry) mutableCopy];
+        if (!manifest) continue;
+        NSString *status = [manifest[@"status"] isKindOfClass:NSString.class] ? manifest[@"status"] : @"unknown";
+        if ([status isEqualToString:@"imported"]) imported++;
+        else if ([status isEqualToString:@"registering"]) registering++;
+        else if ([status isEqualToString:@"failed"] || [status isEqualToString:@"invalid"] || [status isEqualToString:@"unsupported"]) failed++;
+        else stored++;
+        NSString *requestID = [manifest[@"daemonRequestID"] isKindOfClass:NSString.class] ? manifest[@"daemonRequestID"] : nil;
+        if ([status isEqualToString:@"registering"] && requestID.length) {
+            NSString *completionPath = [LBCompletedPath() stringByAppendingPathComponent:[requestID stringByAppendingPathExtension:@"plist"]];
+            NSDictionary *completion = [NSDictionary dictionaryWithContentsOfFile:completionPath];
+            if ([completion[@"requestID"] isEqualToString:requestID] && [completion[@"finished"] boolValue]) {
+                if ([completion[@"success"] boolValue]) {
+                    manifest[@"status"] = @"imported";
+                    manifest[@"installationState"] = @"installed";
+                    manifest[@"installationReport"] = completion[@"result"] ?: @{};
+                } else {
+                    manifest[@"status"] = @"failed";
+                    manifest[@"installationState"] = @"failed";
+                    manifest[@"installationError"] = completion[@"error"] ?: @"PosterBoard daemon import failed.";
+                }
+                [manifest removeObjectForKey:@"daemonRequestID"];
+                LBWriteManagedManifest(manifest, [LBLibraryPath() stringByAppendingPathComponent:entry], nil);
+                [NSFileManager.defaultManager removeItemAtPath:completionPath error:nil];
+            }
+        }
     }
-    [self showMessage:@"Local library" message:[NSString stringWithFormat:@"%lu imported item(s). Native PosterBoard installation is disabled in this build.", (unsigned long)count]];
+    [self showMessage:@"LumenBoard library"
+        message:[NSString stringWithFormat:@"PosterBoard applied: %lu\nRegistration pending: %lu\nFailed: %lu\nLocal-only or not yet imported: %lu",
+            (unsigned long)imported, (unsigned long)registering, (unsigned long)failed, (unsigned long)stored]];
 }
 
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
@@ -203,12 +298,15 @@ static NSDictionary *LBReadManagedManifest(NSString *entry) {
     NSURL *sourceURL = [url copy];
     NSString *sourceExtension = [forcedExtension copy];
     NSString *sourceType = [type copy];
-    __block NSString *finalImportStatus = nil;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         BOOL access = sourceURL.isFileURL && [sourceURL startAccessingSecurityScopedResource];
         NSError *error = nil;
-        BOOL ok = NO;
+        BOOL stored = NO;
         BOOL preserveItemDirectory = NO;
+        NSString *itemDirectory = nil;
+        NSMutableDictionary *manifest = nil;
+        NSString *finalStatus = @"failed";
+        NSString *userMessage = nil;
         @try {
             struct stat sourceStat;
             BOOL sourceIsRegular = sourceURL.isFileURL &&
@@ -219,114 +317,158 @@ static NSDictionary *LBReadManagedManifest(NSString *entry) {
             unsigned long long size = [attributes[NSFileSize] unsignedLongLongValue];
             if (!sourceIsRegular || !attributes || size == 0 || size > LBMaxImportBytes) {
                 if (!error) error = [NSError errorWithDomain:@"LumenBoard" code:201 userInfo:@{
-                    NSLocalizedDescriptionKey: @"File is not a regular file, is empty, or exceeds the 300 MiB import limit."
+                    NSLocalizedDescriptionKey:@"The selected file is not a regular file, is empty, or exceeds the 300 MiB import limit."
                 }];
             } else if (LBEnsureUserDirectories(&error)) {
                 NSString *identifier = NSUUID.UUID.UUIDString.lowercaseString;
-                NSString *itemDirectory = [LBLibraryPath() stringByAppendingPathComponent:identifier];
+                itemDirectory = [LBLibraryPath() stringByAppendingPathComponent:identifier];
                 BOOL createdItemDirectory = [NSFileManager.defaultManager createDirectoryAtPath:itemDirectory
                     withIntermediateDirectories:NO attributes:@{NSFilePosixPermissions:@0700} error:&error];
                 if (createdItemDirectory) {
                     NSString *destination = [itemDirectory stringByAppendingPathComponent:[@"source" stringByAppendingPathExtension:sourceExtension]];
-                    NSURL *destinationURL = [NSURL fileURLWithPath:destination];
                     BOOL sourceStored = NO;
                     if (cleanupTemporarySource) {
                         NSError *moveError = nil;
-                        sourceStored = [NSFileManager.defaultManager moveItemAtURL:sourceURL toURL:destinationURL error:&moveError];
+                        sourceStored = [NSFileManager.defaultManager moveItemAtURL:sourceURL
+                            toURL:[NSURL fileURLWithPath:destination] error:&moveError];
                         if (!sourceStored) {
-                            // A cross-volume move may fail; fall back to a bounded copy,
-                            // then delete the private staging file in the @finally block.
                             error = nil;
-                            sourceStored = [NSFileManager.defaultManager copyItemAtURL:sourceURL toURL:destinationURL error:&error];
+                            sourceStored = [NSFileManager.defaultManager copyItemAtURL:sourceURL
+                                toURL:[NSURL fileURLWithPath:destination] error:&error];
                             if (!sourceStored && !error) error = moveError;
                         }
                     } else {
-                        sourceStored = [NSFileManager.defaultManager copyItemAtURL:sourceURL toURL:destinationURL error:&error];
+                        sourceStored = [NSFileManager.defaultManager copyItemAtURL:sourceURL
+                            toURL:[NSURL fileURLWithPath:destination] error:&error];
                     }
                     if (sourceStored) {
                         preserveItemDirectory = YES;
-                        NSMutableDictionary *manifest = [@{
-                            @"schemaVersion": @2,
-                            @"identifier": identifier,
-                            @"originalName": sourceURL.lastPathComponent ?: @"Imported item",
-                            @"type": sourceType,
-                            @"sourceFilename": destination.lastPathComponent,
-                            @"sourceBytes": @(size),
-                            @"importedAt": [NSDate date],
-                            @"status": [sourceType isEqualToString:@"tendies-unvalidated"] ? @"pending-validation" : @"stored-only",
-                            @"validatorVersion": @"1.0.0",
-                            @"installationState": @"installation-disabled"
+                        NSString *sha256 = LBSHA256ForFile(destination);
+                        manifest = [@{
+                            @"schemaVersion":@3,
+                            @"identifier":identifier,
+                            @"originalName":sourceURL.lastPathComponent ?: @"Imported item",
+                            @"type":sourceType,
+                            @"sourceFilename":destination.lastPathComponent,
+                            @"sourceBytes":@(size),
+                            @"importedAt":[NSDate date],
+                            @"status":@"copying",
+                            @"validatorVersion":@"1.1.0",
+                            @"installationState":[sourceType isEqualToString:@"tendies-unvalidated"] ? @"not-started" : @"not-applicable"
                         } mutableCopy];
-                        if ([sourceType isEqualToString:@"tendies-unvalidated"]) {
-                            // Persist a durable pending state before validation or extraction.
-                            // If the process is interrupted, recovery can identify this item
-                            // without ever mistaking a partially processed archive for valid.
-                            manifest[@"sha256"] = LBSHA256ForFile(destination) ?: @"";
-                            NSString *manifestPath = [itemDirectory stringByAppendingPathComponent:LBManifestName];
-                            NSError *pendingError = nil;
-                            NSData *pendingData = [NSPropertyListSerialization dataWithPropertyList:manifest
-                                format:NSPropertyListBinaryFormat_v1_0 options:0 error:&pendingError];
-                            BOOL pendingSaved = pendingData && [pendingData writeToFile:manifestPath
-                                options:NSDataWritingAtomic error:&pendingError];
-                            NSError *validationError = pendingError;
-                            NSDictionary *validation = nil;
-                            if (pendingSaved) {
-                                NSString *extractionPath = [itemDirectory stringByAppendingPathComponent:@"Extracted"];
-                                validation = [LBTendiesValidator validateArchiveAtPath:destination
-                                    extractToPath:extractionPath error:&validationError];
+                        if (!sha256.length) {
+                            error = [NSError errorWithDomain:@"LumenBoard" code:202 userInfo:@{NSLocalizedDescriptionKey:@"Could not calculate SHA-256 for the stored source file."}];
+                        } else {
+                            manifest[@"sha256"] = sha256;
+                            if ([sourceType isEqualToString:@"tendies-unvalidated"]) {
+                                manifest[@"status"] = @"validating";
+                                if (!LBWriteManagedManifest(manifest, itemDirectory, &error)) {
+                                    // Do not enqueue a source that has no durable manifest.
+                                } else {
+                                    NSString *extractionPath = [itemDirectory stringByAppendingPathComponent:@"Extracted"];
+                                    manifest[@"status"] = @"extracting";
+                                    LBWriteManagedManifest(manifest, itemDirectory, nil);
+                                    NSError *validationError = nil;
+                                    NSDictionary *validation = [LBTendiesValidator validateArchiveAtPath:destination
+                                        extractToPath:extractionPath error:&validationError];
+                                    NSString *validationStatus = [validation[@"status"] isKindOfClass:NSString.class] ? validation[@"status"] : @"incomplete";
+                                    manifest[@"validationReport"] = validation ?: @{};
+                                    manifest[@"validationStatus"] = validationStatus;
+                                    manifest[@"validationError"] = validationError.localizedDescription ?: @"";
+                                    if ([validationStatus isEqualToString:@"extracted"]) {
+                                        manifest[@"status"] = @"registering";
+                                        manifest[@"installationState"] = @"queued";
+                                        manifest[@"extractionPath"] = @"Extracted";
+                                        manifest[@"validationStatus"] = @"valid";
+                                        if (LBWriteManagedManifest(manifest, itemDirectory, &error)) {
+                                            NSString *requestID = nil;
+                                            NSError *daemonError = nil;
+                                            NSDictionary *completion = LBQueueTendiesImportAndWait(identifier, &requestID, &daemonError);
+                                            if (requestID.length) manifest[@"daemonRequestID"] = requestID;
+                                            if (completion && [completion[@"success"] boolValue]) {
+                                                manifest[@"status"] = @"imported";
+                                                manifest[@"installationState"] = @"installed";
+                                                manifest[@"installationReport"] = completion[@"result"] ?: @{};
+                                                [manifest removeObjectForKey:@"daemonRequestID"];
+                                                finalStatus = @"imported";
+                                                stored = YES;
+                                                if ([completion[@"result"][@"refreshWarning"] isKindOfClass:NSString.class]) {
+                                                    userMessage = completion[@"result"][@"refreshWarning"];
+                                                }
+                                            } else if ([completion[@"timedOut"] boolValue]) {
+                                                manifest[@"status"] = @"registering";
+                                                manifest[@"installationState"] = @"queued";
+                                                manifest[@"installationError"] = daemonError.localizedDescription ?: @"The daemon has not responded yet.";
+                                                finalStatus = @"registering";
+                                                stored = YES;
+                                                error = daemonError;
+                                            } else {
+                                                manifest[@"status"] = @"failed";
+                                                manifest[@"installationState"] = @"failed";
+                                                manifest[@"installationError"] = daemonError.localizedDescription ?: @"PosterBoard registration failed.";
+                                                finalStatus = @"failed";
+                                                error = daemonError;
+                                            }
+                                            LBWriteManagedManifest(manifest, itemDirectory, nil);
+                                        } else {
+                                            manifest[@"status"] = @"failed";
+                                            manifest[@"installationState"] = @"not-queued";
+                                            finalStatus = @"failed";
+                                        }
+                                    } else {
+                                        manifest[@"status"] = @"failed";
+                                        manifest[@"installationState"] = @"validation-failed";
+                                        finalStatus = validationStatus;
+                                        error = validationError ?: [NSError errorWithDomain:@"LumenBoard" code:203 userInfo:@{NSLocalizedDescriptionKey:@"The .tendies archive did not pass structural validation."}];
+                                        LBWriteManagedManifest(manifest, itemDirectory, nil);
+                                    }
+                                }
                             } else {
-                                validation = @{@"status": @"incomplete", @"errors": @[@"Could not persist pending-validation manifest"]};
+                                manifest[@"status"] = @"stored-only";
+                                stored = LBWriteManagedManifest(manifest, itemDirectory, &error);
+                                finalStatus = stored ? @"stored-only" : @"failed";
                             }
-                            NSMutableDictionary *validationReport = [validation mutableCopy] ?: [NSMutableDictionary dictionary];
-                            NSString *validationStatus = [validationReport[@"status"] isKindOfClass:NSString.class] ? validationReport[@"status"] : @"incomplete";
-                            if ([validationStatus isEqualToString:@"extracted"]) {
-                                validationReport[@"extractionStatus"] = @"extracted";
-                                validationReport[@"status"] = @"valid";
-                                manifest[@"status"] = @"extracted";
-                                manifest[@"extractionPath"] = @"Extracted";
-                                finalImportStatus = @"extracted";
-                            } else if ([validationStatus isEqualToString:@"valid"]) {
-                                manifest[@"status"] = @"extraction-ready";
-                                finalImportStatus = @"extraction-ready";
-                            } else {
-                                manifest[@"status"] = validationStatus;
-                                finalImportStatus = validationStatus;
-                            }
-                            manifest[@"validationStatus"] = validationReport[@"status"] ?: @"incomplete";
-                            manifest[@"validationReport"] = validationReport;
-                            if (validationError) manifest[@"validationError"] = validationError.localizedDescription;
                         }
-                        NSData *data = [NSPropertyListSerialization dataWithPropertyList:manifest
-                            format:NSPropertyListBinaryFormat_v1_0 options:0 error:&error];
-                        if (data && [data writeToFile:[itemDirectory stringByAppendingPathComponent:LBManifestName]
-                            options:NSDataWritingAtomic error:&error] &&
-                            chmod(itemDirectory.fileSystemRepresentation, 0700) == 0) {
-                            ok = YES;
-                        } else if (!error) {
-                            error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
-                        }
+                    } else if (!error) {
+                        error = [NSError errorWithDomain:@"LumenBoard" code:204 userInfo:@{NSLocalizedDescriptionKey:@"Could not copy the selected source into the private library."}];
                     }
+                    if (createdItemDirectory && !preserveItemDirectory) [NSFileManager.defaultManager removeItemAtPath:itemDirectory error:nil];
                 }
-                if (createdItemDirectory && !ok && !preserveItemDirectory) [NSFileManager.defaultManager removeItemAtPath:itemDirectory error:nil];
             }
         } @catch (NSException *exception) {
-            error = [NSError errorWithDomain:@"LumenBoard" code:202 userInfo:@{
-                NSLocalizedDescriptionKey: exception.reason ?: @"Import failed."
-            }];
+            error = [NSError errorWithDomain:@"LumenBoard" code:205 userInfo:@{NSLocalizedDescriptionKey:exception.reason ?: @"Import failed."}];
+            if (manifest) {
+                manifest[@"status"] = @"failed";
+                manifest[@"installationState"] = @"failed";
+                manifest[@"installationError"] = error.localizedDescription;
+                if (itemDirectory) LBWriteManagedManifest(manifest, itemDirectory, nil);
+            }
         } @finally {
             if (access) [sourceURL stopAccessingSecurityScopedResource];
             if (cleanupTemporarySource) [NSFileManager.defaultManager removeItemAtURL:sourceURL error:nil];
         }
-        NSString *title = ok ? @"Import complete" : @"Import failed";
-        NSString *message = ok ? @"The source is stored locally. It has not been installed into PosterBoard." : (error.localizedDescription ?: @"Unknown import error.");
-        if ((ok || preserveItemDirectory) && [sourceType isEqualToString:@"tendies-unvalidated"]) {
-            message = [NSString stringWithFormat:@".tendies result: %@. Structural validation does not prove PosterBoard compatibility. Native installation remains disabled.", finalImportStatus ?: @"pending-validation"];
+
+        NSString *title = nil;
+        NSString *message = nil;
+        if ([sourceType isEqualToString:@"tendies-unvalidated"]) {
+            if ([finalStatus isEqualToString:@"imported"]) {
+                title = @"Wallpaper imported";
+                message = userMessage ?: @"The .tendies descriptors were registered in the iOS 16 PosterBoard Collections store. Select the wallpaper from the native Lock Screen gallery.";
+            } else if ([finalStatus isEqualToString:@"registering"]) {
+                title = @"Registration queued";
+                message = @"The archive passed validation and extraction. PosterBoard registration is queued; open Refresh local library to check the daemon result.";
+            } else {
+                title = @".tendies import failed";
+                message = error.localizedDescription ?: @"Validation or PosterBoard registration failed. The source was retained for inspection.";
+            }
+        } else {
+            title = stored ? @"Import complete" : @"Import failed";
+            message = stored ? @"The source is stored in LumenBoard's local library." : (error.localizedDescription ?: @"Unknown import error.");
         }
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self showMessage:title message:message];
-        });
+        dispatch_async(dispatch_get_main_queue(), ^{ [self showMessage:title message:message]; });
     });
 }
+
 - (void)showMessage:(NSString *)title message:(NSString *)message {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
