@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+/bin/launchctl bootstrap system /var/jb/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist >/dev/null 2>&1 || true
+/bin/launchctl kickstart -k system/com.iuyghi.lumenboardd >/dev/null 2>&1 || true
+exit 0
