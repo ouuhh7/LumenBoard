@@ -4,6 +4,7 @@
 #import <sys/types.h>
 #import <fcntl.h>
 #import <stdlib.h>
+#import <limits.h>
 #import <unistd.h>
 #import <errno.h>
 #import <spawn.h>
@@ -45,6 +46,18 @@ static BOOL LBEnsureDirectoryTree(NSString *path, mode_t mode, NSError **error) 
         NSString *candidate = [current copy];
         struct stat st;
         if (lstat(candidate.fileSystemRepresentation, &st) == 0) {
+            if (S_ISLNK(st.st_mode) && [candidate isEqualToString:@"/var"]) {
+                // On Apple platforms /var is a system alias for /private/var.
+                // Resolve only this known platform alias; reject all other
+                // symlink components so an attacker cannot redirect root writes.
+                char resolved[PATH_MAX] = {0};
+                if (!realpath(candidate.fileSystemRepresentation, resolved)) {
+                    if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+                    return NO;
+                }
+                [current setString:[NSString stringWithUTF8String:resolved]];
+                continue;
+            }
             if (!S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode)) {
                 if (error) *error = LBInstallError(10, [NSString stringWithFormat:@"Refusing a non-directory or symlink at %@", candidate]);
                 return NO;
