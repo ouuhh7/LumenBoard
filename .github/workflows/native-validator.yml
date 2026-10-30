@@ -72,6 +72,13 @@ jobs:
           sh -n layout/DEBIAN/prerm
           plutil -lint layout/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist
           grep -q "/var/jb/usr/libexec/lumenboardd" layout/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist
+      - name: Validate package scripts and LaunchDaemon plist
+        run: |
+          set -euo pipefail
+          sh -n layout/DEBIAN/postinst
+          sh -n layout/DEBIAN/prerm
+          plutil -lint layout/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist
+          grep -q "/var/jb/usr/libexec/lumenboardd" layout/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist
       - name: Build rootless package
         run: |
           export THEOS="$HOME/theos"
