@@ -2,6 +2,8 @@
 #import "../Preferences/LBTendiesValidator.h"
 #import <sys/stat.h>
 #import <sys/types.h>
+#import <fcntl.h>
+#import <stdlib.h>
 #import <unistd.h>
 #import <errno.h>
 #import <spawn.h>
@@ -226,12 +228,33 @@ static BOOL LBValidateDescriptorTree(NSString *root, NSError **error) {
             if (!LBIsRegularFile(full)) continue;
             NSData *data = [NSData dataWithContentsOfFile:full];
             NSDictionary *wallpaper = data ? [NSPropertyListSerialization propertyListWithData:data options:NSPropertyListMutableContainers format:nil error:nil] : nil;
+            NSDictionary *assets = [wallpaper[@"assets"] isKindOfClass:NSDictionary.class] ? wallpaper[@"assets"] : nil;
+            NSDictionary *lockAndHome = [assets[@"lockAndHome"] isKindOfClass:NSDictionary.class] ? assets[@"lockAndHome"] : nil;
+            NSDictionary *defaults = [lockAndHome[@"default"] isKindOfClass:NSDictionary.class] ? lockAndHome[@"default"] : nil;
+            NSString *backgroundName = [defaults[@"backgroundAnimationFileName"] isKindOfClass:NSString.class] ? defaults[@"backgroundAnimationFileName"] : nil;
+            NSString *floatingName = [defaults[@"floatingAnimationFileNameKey"] isKindOfClass:NSString.class] ? defaults[@"floatingAnimationFileNameKey"] : nil;
             if (![wallpaper isKindOfClass:NSDictionary.class] ||
                 !LBIsPositiveNumericIdentifier(wallpaper[@"identifier"]) ||
                 ![wallpaper[@"name"] isKindOfClass:NSString.class] ||
-                ![wallpaper[@"assets"] isKindOfClass:NSDictionary.class]) {
-                if (error) *error = LBInstallError(26, [NSString stringWithFormat:@"Invalid Wallpaper.plist at %@", file]);
+                !assets || !defaults || !backgroundName.length || !floatingName.length ||
+                !LBPathIsSafeRelative(backgroundName) || !LBPathIsSafeRelative(floatingName)) {
+                if (error) *error = LBInstallError(26, [NSString stringWithFormat:@"Invalid Wallpaper.plist or missing lockAndHome/default layer references at %@", file]);
                 return NO;
+            }
+            NSString *wallpaperBundleRoot = full.stringByDeletingLastPathComponent;
+            NSString *backgroundPath = [wallpaperBundleRoot stringByAppendingPathComponent:backgroundName];
+            NSString *floatingPath = [wallpaperBundleRoot stringByAppendingPathComponent:floatingName];
+            if (!LBIsDirectory(backgroundPath) || !LBIsDirectory(floatingPath)) {
+                if (error) *error = LBInstallError(28, [NSString stringWithFormat:@"Wallpaper.plist references missing background/floating CAML bundles at %@", file]);
+                return NO;
+            }
+            for (NSString *layerPath in @[backgroundPath, floatingPath]) {
+                for (NSString *required in @[@"index.xml", @"main.caml"]) {
+                    if (!LBIsRegularFile([layerPath stringByAppendingPathComponent:required])) {
+                        if (error) *error = LBInstallError(29, [NSString stringWithFormat:@"CAML layer is missing %@: %@", required, layerPath]);
+                        return NO;
+                    }
+                }
             }
             wallpaperCount++;
         }
@@ -261,7 +284,9 @@ static BOOL LBRewriteDescriptorIdentifiers(NSString *root, NSInteger numericID, 
                 if (error) *error = LBInstallError(30, @"Cannot rewrite provider contents user-info.");
                 return NO;
             }
-            userInfo[@"wallpaperRepresentingIdentifier"] = descriptorID;
+            id existingIdentifier = userInfo[@"wallpaperRepresentingIdentifier"];
+            userInfo[@"wallpaperRepresentingIdentifier"] =
+                [existingIdentifier isKindOfClass:NSNumber.class] ? @(numericID) : descriptorID;
             NSData *rewritten = [NSPropertyListSerialization dataWithPropertyList:userInfo format:NSPropertyListBinaryFormat_v1_0 options:0 error:error];
             if (!rewritten || !LBWriteDataAtomically(rewritten, full, error)) return NO;
         } else if ([name caseInsensitiveCompare:@"Wallpaper.plist"] == NSOrderedSame) {
@@ -396,6 +421,13 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
     preferences[@"PBF_RESET_FILE_PROTECTIONS"] = @YES;
     NSData *preferencesData = [NSPropertyListSerialization dataWithPropertyList:preferences format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil];
     BOOL preferencesWritten = preferencesData && LBWriteDataAtomically(preferencesData, preferencesPath, nil);
+    struct passwd *mobile = getpwnam("mobile");
+    if (preferencesWritten && mobile) {
+        if (chown(preferencesPath.fileSystemRepresentation, mobile->pw_uid, mobile->pw_gid) != 0 ||
+            chmod(preferencesPath.fileSystemRepresentation, 0644) != 0) preferencesWritten = NO;
+    } else if (preferencesWritten && geteuid() == 0) {
+        preferencesWritten = NO;
+    }
     int status = 0;
     char *arguments[] = {"/usr/bin/killall", "-9", "PosterBoard", NULL};
     pid_t pid = 0;
