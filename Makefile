@@ -3,6 +3,7 @@
 ARCHS = arm64
 TARGET = iphone:clang:16.5:16.0
 THEOS_PACKAGE_SCHEME = rootless
+THEOS_PLATFORM_DEB_COMPRESSION_TYPE = xz
 
 include $(THEOS)/makefiles/common.mk
 
