@@ -1,7 +1,7 @@
 # iPhone X / iOS 16 rootless package. The privileged daemon owns the
 # PosterBoard store writes; the Preferences bundle only submits bounded IPC requests.
 ARCHS = arm64
-TARGET = iphone:clang:latest:16.0
+TARGET = iphone:clang:16.5:16.0
 THEOS_PACKAGE_SCHEME = rootless
 
 include $(THEOS)/makefiles/common.mk
