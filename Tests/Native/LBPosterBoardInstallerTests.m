@@ -83,6 +83,12 @@
             };
             XCTAssertTrue([self writePlist:wallpaperPlist
                 toPath:[wallpaper stringByAppendingPathComponent:@"Wallpaper.plist"]]);
+            for (NSString *layerName in @[@"PF_Background.ca", @"PF_Floating.ca"]) {
+                NSString *layer = [wallpaper stringByAppendingPathComponent:layerName];
+                XCTAssertTrue([[NSFileManager defaultManager] createDirectoryAtPath:layer withIntermediateDirectories:NO attributes:nil error:&error], @"%@", error);
+                [@"<caml/>" writeToFile:[layer stringByAppendingPathComponent:@"main.caml"] atomically:YES encoding:NSUTF8StringEncoding error:&error];
+                [@"index" writeToFile:[layer stringByAppendingPathComponent:@"index.xml"] atomically:YES encoding:NSUTF8StringEncoding error:&error];
+            }
         }
         [@"fixture asset" writeToFile:[wallpaper stringByAppendingPathComponent:@"sample.asset"]
             atomically:YES encoding:NSUTF8StringEncoding error:&error];
