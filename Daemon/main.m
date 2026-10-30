@@ -110,14 +110,14 @@ static NSDictionary *LBProcessImportRequest(NSDictionary *request, NSError **err
     NSDictionary *item = LBLoadManagedTendiesItem(identifier, error);
     if (!item) return nil;
 
-    NSDictionary *manifest = item[@"manifest"];
+    NSDictionary *existingManifest = item[@"manifest"];
     // A previous daemon cycle may have completed installation but failed while
     // writing the completion record. Reuse its durable result instead of
     // publishing duplicate descriptors.
-    if ([manifest[@"status"] isEqualToString:@"imported"] &&
-        [manifest[@"installationState"] isEqualToString:@"installed"] &&
-        [manifest[@"installationReport"] isKindOfClass:NSDictionary.class]) {
-        return manifest[@"installationReport"];
+    if ([existingManifest[@"status"] isEqualToString:@"imported"] &&
+        [existingManifest[@"installationState"] isEqualToString:@"installed"] &&
+        [existingManifest[@"installationReport"] isKindOfClass:NSDictionary.class]) {
+        return existingManifest[@"installationReport"];
     }
 
     NSString *container = [LBPosterBoardInstaller findPosterBoardContainer:error];
