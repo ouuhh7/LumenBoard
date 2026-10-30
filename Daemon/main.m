@@ -110,6 +110,16 @@ static NSDictionary *LBProcessImportRequest(NSDictionary *request, NSError **err
     NSDictionary *item = LBLoadManagedTendiesItem(identifier, error);
     if (!item) return nil;
 
+    NSDictionary *manifest = item[@"manifest"];
+    // A previous daemon cycle may have completed installation but failed while
+    // writing the completion record. Reuse its durable result instead of
+    // publishing duplicate descriptors.
+    if ([manifest[@"status"] isEqualToString:@"imported"] &&
+        [manifest[@"installationState"] isEqualToString:@"installed"] &&
+        [manifest[@"installationReport"] isKindOfClass:NSDictionary.class]) {
+        return manifest[@"installationReport"];
+    }
+
     NSString *container = [LBPosterBoardInstaller findPosterBoardContainer:error];
     if (!container) return nil;
 
@@ -160,6 +170,15 @@ static void LBProcessRequests(void) {
             if (![request isKindOfClass:NSDictionary.class] ||
                 ![request[@"requestID"] isKindOfClass:NSString.class] ||
                 [request[@"requestID"] caseInsensitiveCompare:requestID] != NSOrderedSame) {
+                [fm removeItemAtPath:path error:nil];
+                continue;
+            }
+
+            NSString *completionPath = [LBCompletedPath() stringByAppendingPathComponent:[requestID stringByAppendingPathExtension:@"plist"]];
+            NSDictionary *priorCompletion = [NSDictionary dictionaryWithContentsOfFile:completionPath];
+            if ([priorCompletion isKindOfClass:NSDictionary.class] &&
+                [priorCompletion[@"requestID"] isEqualToString:requestID] &&
+                [priorCompletion[@"finished"] boolValue]) {
                 [fm removeItemAtPath:path error:nil];
                 continue;
             }
