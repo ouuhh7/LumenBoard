@@ -198,6 +198,7 @@ static BOOL LBValidateDescriptorTree(NSString *root, NSError **error) {
     __block NSUInteger wallpaperCount = 0;
     __block BOOL userInfoFound = NO;
     __block BOOL wallpaperBundleFound = NO;
+    __block NSString *referencedWallpaperBundle = nil;
     NSDirectoryEnumerator *files = [NSFileManager.defaultManager enumeratorAtPath:root];
     NSString *file = nil;
     while ((file = files.nextObject)) {
@@ -211,6 +212,8 @@ static BOOL LBValidateDescriptorTree(NSString *root, NSError **error) {
             id representingID = userInfo[@"wallpaperRepresentingIdentifier"];
             if (![userInfo isKindOfClass:NSDictionary.class] || !representingName.length ||
                 !LBPathIsSafeRelative(representingName) ||
+                [representingName rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound ||
+                [representingName containsString:@":"] ||
                 !([representingID isKindOfClass:NSString.class] || LBIsPositiveNumericIdentifier(representingID))) {
                 if (error) *error = LBInstallError(24, @"provider contents user-info is missing a safe wallpaper filename or identifier.");
                 return NO;
@@ -223,6 +226,7 @@ static BOOL LBValidateDescriptorTree(NSString *root, NSError **error) {
             }
             userInfoFound = YES;
             wallpaperBundleFound = YES;
+            referencedWallpaperBundle = wallpaperPath;
         }
         if ([last caseInsensitiveCompare:@"Wallpaper.plist"] == NSOrderedSame) {
             if (!LBIsRegularFile(full)) continue;
@@ -259,8 +263,10 @@ static BOOL LBValidateDescriptorTree(NSString *root, NSError **error) {
             wallpaperCount++;
         }
     }
-    if (!wallpaperCount || !userInfoFound || !wallpaperBundleFound) {
-        if (error) *error = LBInstallError(27, @"Descriptor requires Wallpaper.plist and provider user-info that references an existing wallpaper bundle.");
+    NSString *referencedWallpaperPlist = referencedWallpaperBundle.length ?
+        [referencedWallpaperBundle stringByAppendingPathComponent:@"Wallpaper.plist"] : nil;
+    if (!wallpaperCount || !userInfoFound || !wallpaperBundleFound || !LBIsRegularFile(referencedWallpaperPlist)) {
+        if (error) *error = LBInstallError(27, @"Descriptor requires a Wallpaper.plist inside the bundle referenced by provider user-info.");
         return NO;
     }
     return YES;
