@@ -19,4 +19,6 @@ SUBPROJECTS += Preferences
 include $(THEOS_MAKE_PATH)/aggregate.mk
 
 before-package::
-	chmod 0755 $(THEOS_PROJECT_DIR)/layout/DEBIAN/postinst $(THEOS_PROJECT_DIR)/layout/DEBIAN/prerm
+	test -f $(THEOS_STAGING_DIR)/DEBIAN/postinst
+	test -f $(THEOS_STAGING_DIR)/DEBIAN/prerm
+	chmod 0755 $(THEOS_STAGING_DIR)/DEBIAN/postinst $(THEOS_STAGING_DIR)/DEBIAN/prerm
