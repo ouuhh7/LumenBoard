@@ -21,7 +21,7 @@ jobs:
           set -euo pipefail
           git --version
           git lfs version
-          git lfs install --local
+          # The mirror clone is bare; explicit git-lfs fetch/push runs below.
 
       - name: Clone full source mirror and validate original refs
         shell: bash
@@ -57,6 +57,8 @@ jobs:
             echo "- original commit reachable from main and work: yes"
             echo "- git fsck --full --strict: passed"
             echo "- Git LFS entries: $(wc -l < "$RUNNER_TEMP/lumenboard-lfs-manifest.txt")"
+            recovery_base="$(git merge-base refs/heads/main refs/heads/recovery/original-bundle-2026-10-30 || true)"
+            echo "- main/recovery merge-base: ${recovery_base:-none}"
             echo
             echo "### Gitlinks / submodules"
             for ref in refs/heads/main refs/heads/work/tendies-native-validation refs/heads/recovery/original-bundle-2026-10-30; do
