@@ -57,6 +57,7 @@ jobs:
       - name: Install Theos
         run: |
           git clone --depth 1 https://github.com/theos/theos.git "$HOME/theos"
+          "$HOME/theos/bin/update-theos"
           echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
       - name: Configure Apple iPhoneOS SDK
         run: |
