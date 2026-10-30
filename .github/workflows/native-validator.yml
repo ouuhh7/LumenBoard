@@ -33,9 +33,10 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild test -project LumenBoardNativeTests.xcodeproj \
-            -scheme LBTendiesValidatorTests \
+            -scheme LumenBoardNativeTests \
             -destination 'platform=macOS' \
             CODE_SIGNING_ALLOWED=NO | tee native-xctest.log
+          grep -E "Executed [0-9]+ tests|TEST SUCCEEDED" native-xctest.log
       - name: Upload XCTest log
         if: always()
         uses: actions/upload-artifact@v4
@@ -64,6 +65,13 @@ jobs:
           mkdir -p "$HOME/theos/sdks"
           ln -s "$SDK_PATH" "$HOME/theos/sdks/iPhoneOS${SDK_VERSION}.sdk"
           echo "Using Xcode iPhoneOS SDK $SDK_VERSION at $SDK_PATH"
+      - name: Validate maintainer scripts and launch daemon plist
+        run: |
+          set -euo pipefail
+          sh -n layout/DEBIAN/postinst
+          sh -n layout/DEBIAN/prerm
+          plutil -lint layout/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist
+          grep -q "/var/jb/usr/libexec/lumenboardd" layout/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist
       - name: Build rootless package
         run: |
           export THEOS="$HOME/theos"
@@ -80,6 +88,11 @@ jobs:
           dpkg-deb -f "$DEB" Package Version Architecture Depends | tee package-control.txt
           test "$(dpkg-deb -f "$DEB" Architecture)" = "iphoneos-arm64"
           grep -q "var/jb/Library/PreferenceBundles/LumenBoardPrefs.bundle" package-contents.txt
+          grep -q "var/jb/usr/libexec/lumenboardd" package-contents.txt
+          grep -q "var/jb/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist" package-contents.txt
+          dpkg-deb -x "$DEB" extracted-deb
+          test -x extracted-deb/var/jb/usr/libexec/lumenboardd
+          plutil -lint extracted-deb/var/jb/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist
           shasum -a 256 "$DEB" | tee SHA256SUMS
       - name: Upload package and verification
         uses: actions/upload-artifact@v4
