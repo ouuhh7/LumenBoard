@@ -95,7 +95,8 @@ static NSDictionary *LBLoadManagedTendiesItem(NSString *identifier, NSError **er
         if (error) *error = [NSError errorWithDomain:@"com.iuyghi.LumenBoard.Daemon" code:105 userInfo:@{NSLocalizedDescriptionKey:@"Managed .tendies source is missing, unsafe, or exceeds 300 MiB."}];
         return nil;
     }
-    NSString *expectedHash = [manifest[@"sha256"] isKindOfClass:NSString.class] ? manifest[@"sha256"].lowercaseString : nil;
+    id hashValue = manifest[@"sha256"];
+    NSString *expectedHash = [hashValue isKindOfClass:NSString.class] ? [(NSString *)hashValue lowercaseString] : nil;
     NSString *actualHash = LBSHA256(sourcePath);
     if (!expectedHash.length || !actualHash.length || ![expectedHash isEqualToString:actualHash]) {
         if (error) *error = [NSError errorWithDomain:@"com.iuyghi.LumenBoard.Daemon" code:106 userInfo:@{NSLocalizedDescriptionKey:@"The source archive SHA-256 does not match the stored import manifest."}];
