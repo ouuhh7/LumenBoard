@@ -59,7 +59,10 @@ static BOOL LBEnsureDirectoryTree(NSString *path, mode_t mode, NSError **error) 
 
 static BOOL LBSetMobileOwnership(NSString *root, NSError **error) {
     struct passwd *mobile = getpwnam("mobile");
-    if (!mobile) {
+    // XCTest runs on macOS, where there is no mobile account. Allow mode-only
+    // setup for non-root test hosts; the production daemon runs as root and
+    // must resolve the mobile account before publishing into PosterBoard.
+    if (!mobile && geteuid() == 0) {
         if (error) *error = LBInstallError(11, @"The mobile user could not be resolved for PosterBoard descriptor ownership.");
         return NO;
     }
@@ -77,11 +80,25 @@ static BOOL LBSetMobileOwnership(NSString *root, NSError **error) {
             return NO;
         }
         mode_t mode = S_ISDIR(st.st_mode) ? 0755 : 0644;
-        if (chown(path.fileSystemRepresentation, mobile->pw_uid, mobile->pw_gid) != 0 ||
+        if ((mobile && chown(path.fileSystemRepresentation, mobile->pw_uid, mobile->pw_gid) != 0) ||
             chmod(path.fileSystemRepresentation, mode) != 0) {
             if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
             return NO;
         }
+    }
+    return YES;
+}
+
+static BOOL LBEnsureDirectory(NSString *path, mode_t mode, NSError **error) {
+    struct stat st;
+    if (lstat(path.fileSystemRepresentation, &st) == 0) {
+        if (S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode)) return YES;
+        if (error) *error = LBInstallError(13, [NSString stringWithFormat:@"Refusing a non-directory or symlink at %@", path]);
+        return NO;
+    }
+    if (errno != ENOENT || mkdir(path.fileSystemRepresentation, mode) != 0) {
+        if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+        return NO;
     }
     return YES;
 }
@@ -416,6 +433,7 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
     if (!LBEnsureDirectory(stagingRoot, 0700, error)) return nil;
     NSMutableArray<NSString *> *stagedPaths = [NSMutableArray array];
     NSMutableArray<NSString *> *publishedPaths = [NSMutableArray array];
+    NSMutableArray<NSString *> *committedPaths = [NSMutableArray array];
     NSMutableArray<NSString *> *publishedIdentifiers = [NSMutableArray array];
     BOOL success = YES;
     NSError *localError = nil;
@@ -452,15 +470,26 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
         for (NSUInteger index = 0; index < stagedPaths.count; index++) {
             NSString *staged = stagedPaths[index];
             NSString *destination = publishedPaths[index];
+            // Re-check immediately before publication and refuse to replace any
+            // object created concurrently since the initial collision check.
+            struct stat destinationStat;
+            if (lstat(destination.fileSystemRepresentation, &destinationStat) == 0 || errno != ENOENT) {
+                localError = LBInstallError(64, @"Destination UUID appeared during staging; refusing to overwrite it.");
+                success = NO;
+                break;
+            }
             if (rename(staged.fileSystemRepresentation, destination.fileSystemRepresentation) != 0) {
                 localError = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
                 success = NO;
                 break;
             }
+            [committedPaths addObject:destination];
         }
     }
     if (!success) {
-        for (NSString *path in publishedPaths) {
+        // Roll back only directories this invocation actually published. Never
+        // delete a colliding path that appeared concurrently.
+        for (NSString *path in committedPaths.reverseObjectEnumerator) {
             if (LBIsDirectory(path)) [NSFileManager.defaultManager removeItemAtPath:path error:nil];
         }
         [NSFileManager.defaultManager removeItemAtPath:stagingRoot error:nil];
