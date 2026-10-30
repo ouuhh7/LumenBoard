@@ -34,7 +34,7 @@ static BOOL LBIsDirectory(NSString *path) {
 }
 
 static BOOL LBEnsureDirectoryTree(NSString *path, mode_t mode, NSError **error) {
-    NSString *normalized = [[path stringByResolvingSymlinksInPath] stringByStandardizingPath];
+    NSString *normalized = [path stringByStandardizingPath];
     if (![normalized hasPrefix:@"/"]) {
         if (error) *error = LBInstallError(9, @"PosterBoard destination must be an absolute path.");
         return NO;
