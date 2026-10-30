@@ -6,29 +6,34 @@ options:
   deploymentTarget:
     macOS: "13.0"
 targets:
-  LBTendiesValidatorTests:
+  LumenBoardNativeTests:
     type: bundle.unit-test
     platform: macOS
     sources:
       - path: Preferences/LBTendiesValidator.m
+      - path: Daemon/LBPosterBoardInstaller.m
+      - path: Shared/LBPaths.m
       - path: Tests/Native/LBTendiesValidatorTests.m
+      - path: Tests/Native/LBPosterBoardInstallerTests.m
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.iuyghi.lumenboard.tests.validator
+        PRODUCT_BUNDLE_IDENTIFIER: com.iuyghi.lumenboard.tests.native
         GENERATE_INFOPLIST_FILE: YES
         CLANG_ENABLE_OBJC_ARC: YES
         HEADER_SEARCH_PATHS:
           - $(SRCROOT)/Preferences
+          - $(SRCROOT)/Daemon
+          - $(SRCROOT)/Shared
     dependencies:
       - sdk: Foundation.framework
       - sdk: XCTest.framework
       - sdk: libz.tbd
 schemes:
-  LBTendiesValidatorTests:
+  LumenBoardNativeTests:
     build:
       targets:
-        LBTendiesValidatorTests: all
+        LumenBoardNativeTests: all
     test:
       config: Debug
       targets:
-        - LBTendiesValidatorTests
+        - LumenBoardNativeTests
