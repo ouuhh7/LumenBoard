@@ -1,28 +1,37 @@
-# Verification plan
+# Verification plan — current packaged daemon
 
-## Checks that run without iOS
+## Automated checks
 
-- `python3 -m unittest discover -s tests -v` — archive-safety tests plus static package-contract guards.
-- `python3 -m py_compile tools/tendies_inspect.py tests/test_tendies_inspect.py`.
-- `python3 tools/tendies_inspect.py --help`.
-- Lint `Preferences/Resources/Root.plist`, the Preferences Info plist, PreferenceLoader plist, and the daemon plist prototype with `plutil` on a compatible host.
-- Shell syntax validation of `docs/prototypes/postinst` and `docs/prototypes/prerm`.
-- `git diff --check`, tracked-file inventory, `git fsck --full --no-reflogs`, archive SHA-256, ZIP integrity and test-after-extraction.
+- `python3 -m unittest discover -s tests -v` for the portable archive and descriptor utilities.
+- XcodeGen + `xcodebuild test` for the Objective-C native suite.
+- `sh -n` for `layout/DEBIAN/postinst` and `layout/DEBIAN/prerm`.
+- `sh tests/test_maintainer_scripts.sh` to exercise fresh bootstrap, repeat configure with launchctl status 37, misleading status 5 rejection, bootstrap failure, kickstart failure, and idempotent prerm.
+- `plutil -lint` for the launchd plist and built Preferences Info.plist.
+- Build and inspect the Debian archive: package fields, rootless paths, file modes/owners, arm64 Mach-O binaries, signatures, and exact maintainer scripts.
 
-These checks do not compile the Objective-C source or validate an actual `.tendies` package.
+Automated checks use macOS and synthetic fixtures. They do not reproduce iOS launchd, Dopamine permissions, actual PosterBoard container state, or wallpaper rendering.
 
-## iOS/PosterBoard tests that cannot be claimed here
+## Target-device acceptance tests
 
-On an iPhone X running iOS 16.7.16 with the exact Dopamine/RootHide variant/build, after building with compatible Theos + an iOS SDK:
+On the iPhone X running iOS 16.7.16 with the exact Dopamine/RootHide build:
 
-1. Build and lint the unprivileged Preferences bundle, inspect the staged filesystem, and confirm that the package contains no daemon or active maintainer scripts.
-2. Install on a backed-up/disposable test device and confirm the PreferenceLoader pane loads. The current package should not start any privileged service.
-3. Import a small JPEG, HEIC and MOV/MP4; check preview/manage text, sizes, cancellation, repeated imports, malformed/unsupported extensions, responsiveness, and local removal.
-4. Supply a known-good iOS 16 descriptor-format `.tendies` fixture plus iOS 17+, container-format, malformed ZIP, path traversal, symlink, duplicate, oversized and corrupt-CRC fixtures. Compare Python inspection results with expected results. Do not treat this tool as an on-device parser.
-5. Before native integration, compare descriptor tree, `Wallpaper.plist`, provider metadata, `index.xml`, `main.caml` and assets against the fixture. Confirm the `59`/CollectionsPoster path and the iPhone X `logicalScreenClass` using the target device, not assumptions.
-6. Only after an IPC threat model and request-path handling audit, build a privileged daemon in a separate change and test request validation, path traversal, symlink races, ownership, bounded queue work, rollback and failure recovery.
-7. Once native integration is enabled, open the native Lock Screen wallpaper picker, verify appearance under Add New Wallpaper → Collections, select it, lock/unlock, reboot/respring and verify persistence.
-8. Verify image frame timing, memory/CPU, optional blur behavior, and audio handling if those features are implemented.
-9. Remove only a LumenBoard-owned descriptor; prove stock and third-party wallpapers remain untouched. Test uninstall/rollback and preserve logs plus before/after listings.
+1. Confirm the installed package version and SHA-256 before installation; capture complete dpkg output.
+2. Confirm `dpkg` finishes configuration with no maintainer-script error.
+3. Confirm `launchctl print user/foreground/com.iuyghi.lumenboardd` shows the daemon. Inspect `/var/mobile/Library/Logs/LumenBoard-daemon.log` if it does not.
+4. Open Settings > LumenBoard and import a small, known-good descriptor-format `.tendies` fixture.
+5. Confirm the managed manifest progresses from validation to registration and the daemon completion record reports descriptor publication.
+6. Confirm the descriptor appears in native PosterBoard Collections, opens in preview, is selectable, and actually renders on Lock Screen and Home Screen.
+7. Reboot/respring and verify both wallpaper persistence and daemon relaunch.
+8. Run dpkg configure/upgrade again to exercise the already-bootstrapped path; it must not fail or create duplicate service instances.
+9. Remove the package and confirm the daemon is stopped. Confirm no user library files or unrelated PosterBoard descriptors were deleted.
+
+Capture dpkg output, launchctl print output, daemon log, the relevant manifest and screenshots. Redact device identifiers before sharing.
+
+## Explicitly out of scope until separately implemented
+
+- Complete photo/video-to-CAML conversion and native gallery publishing.
+- Safe removal of LumenBoard-owned descriptors from PosterBoard.
+- Claims that descriptor publication means gallery visibility or actual wallpaper application.
+- iOS 17+ or whole-container `.tendies` import.
 
 A successful compile or DEB creation is a packaging check only. It is not evidence that PosterBoard accepts or renders an installed descriptor.

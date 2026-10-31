@@ -18,7 +18,7 @@ Not claimed: a complete photo/video-to-CAML conversion pipeline, safe native rem
 - Theos configured in `THEOS`,
 - the applicable rootless packaging tools and PreferenceLoader headers/framework.
 
-The build attempt on 2026-10-29 is documented in [`docs/THEOS_BUILD_REPORT_2026-10-29.md`](docs/THEOS_BUILD_REPORT_2026-10-29.md). It was blocked because this container had no Theos/SDK and could not resolve external hosts; no `.deb` was produced.
+The original local build attempt on 2026-10-29 is documented in [`docs/THEOS_BUILD_REPORT_2026-10-29.md`](docs/THEOS_BUILD_REPORT_2026-10-29.md). That environment lacked Theos/SDK; the package is now built in GitHub Actions using a supported macOS/Theos toolchain.
 
 Then run:
 
@@ -26,7 +26,7 @@ Then run:
 make clean package FINALPACKAGE=1
 ```
 
-The DEB, if the build succeeds, should be emitted under `packages/`. The current package target is intentionally limited to the unprivileged Preferences bundle; the daemon prototype is not compiled or staged. The local environment used to prepare this baseline does not have Theos, an Apple SDK or `xcrun`; it cannot produce or validate the iOS package here.
+The package is emitted under `packages/`. The current aggregate target compiles and stages both the Preferences bundle and the native daemon. Use the GitHub Actions artifact for the exact verified CI build; local builds require a supported Theos installation and iOS SDK.
 
 ## Portable validation tests
 

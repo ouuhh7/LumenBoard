@@ -1,3 +1,5 @@
+<!-- Historical snapshot. This report describes the earlier offline-only generator phase; subsequent commits added the native .tendies daemon and descriptor publisher. Current authoritative implementation status: README.md, docs/ARCHITECTURE.md and docs/BUILD_AND_DEVICE_VALIDATION.md. -->
+
 # LumenBoard engine phase report
 
 Date: 2026-10-29

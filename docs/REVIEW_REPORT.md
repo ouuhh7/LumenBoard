@@ -1,3 +1,5 @@
+<!-- Historical snapshot. This report records the pre-integration review performed on 29 October 2026; subsequent commits added and packaged the daemon/descriptor importer. Current authoritative implementation status: README.md, docs/ARCHITECTURE.md and docs/BUILD_AND_DEVICE_VALIDATION.md. -->
+
 # LumenBoard-Development-Fresh — technical review
 
 Review date: 29 October 2026. Scope: direct inspection of the local source tree, source history, ZIP artifact, Python validator and tests; read-only study of public PosterForge/Nugget/Tools documentation. No GitHub repository was created and no push was made.

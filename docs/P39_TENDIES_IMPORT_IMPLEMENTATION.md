@@ -1,3 +1,5 @@
+<!-- Historical snapshot. This report documents the pre-daemon implementation and is superseded by the current packaged implementation. Current authoritative implementation status: README.md, docs/ARCHITECTURE.md and docs/BUILD_AND_DEVICE_VALIDATION.md. -->
+
 # P39 — Tendies → PosterBoard Collections implementation report
 
 Date: 2026-10-30  

@@ -1,3 +1,5 @@
+<!-- Historical snapshot. This report documents the original local-only validator; later code adds daemon submission and descriptor publication. Current authoritative implementation status: README.md, docs/ARCHITECTURE.md and docs/BUILD_AND_DEVICE_VALIDATION.md. -->
+
 # Native .tendies validation — hardened working branch
 
 ## Current implementation
