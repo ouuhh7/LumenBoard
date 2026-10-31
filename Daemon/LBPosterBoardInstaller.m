@@ -698,4 +698,62 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
              @"extension": LBCollectionsExtension};
 }
 
+
++ (NSDictionary *)requestPosterBoardRefreshForContainer:(NSString *)containerPath {
+    NSString *preferencesPath = [containerPath stringByAppendingPathComponent:@"Library/Preferences/com.apple.PosterBoard.unprotectedUserDefaults.plist"];
+    NSMutableDictionary *preferences = [[NSDictionary dictionaryWithContentsOfFile:preferencesPath] mutableCopy] ?: [NSMutableDictionary dictionary];
+    preferences[@"PBF_LOCALE_DID_CHANGE"] = @NO;
+    preferences[@"PBF_RESET_FILE_PROTECTIONS"] = @YES;
+    NSData *data = [NSPropertyListSerialization dataWithPropertyList:preferences format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil];
+    BOOL written = data && LBWriteDataAtomically(data, preferencesPath, nil);
+    int savedErrno = written ? 0 : (errno ?: EIO);
+    struct passwd *mobile = getpwnam("mobile");
+    struct stat st;
+    if (written && (lstat(preferencesPath.fileSystemRepresentation, &st) != 0 || !S_ISREG(st.st_mode) || S_ISLNK(st.st_mode))) {
+        written = NO; savedErrno = errno ?: EINVAL;
+    }
+    if (written && mobile && (st.st_uid != mobile->pw_uid || st.st_gid != mobile->pw_gid)) {
+        if (geteuid() == 0 && chown(preferencesPath.fileSystemRepresentation, mobile->pw_uid, mobile->pw_gid) == 0) {
+            lstat(preferencesPath.fileSystemRepresentation, &st);
+        } else {
+            written = NO; savedErrno = errno ?: EPERM;
+        }
+    }
+    if (written && chmod(preferencesPath.fileSystemRepresentation, 0644) != 0) {
+        written = NO; savedErrno = errno;
+    }
+    int spawnResult = -1, exitStatus = -1, waitError = 0;
+    BOOL requested = NO;
+    if (written) {
+        char *arguments[] = {"/usr/bin/killall", "-9", "PosterBoard", NULL};
+        pid_t pid = 0;
+        spawnResult = posix_spawn(&pid, arguments[0], NULL, NULL, arguments, environ);
+        if (spawnResult == 0) {
+            int status = 0; pid_t waited;
+            do { waited = waitpid(pid, &status, 0); } while (waited < 0 && errno == EINTR);
+            if (waited == pid && WIFEXITED(status)) {
+                exitStatus = WEXITSTATUS(status);
+                requested = exitStatus == 0;
+            } else if (waited < 0) waitError = errno ?: ECHILD;
+        }
+    }
+    NSMutableDictionary *result = [@{
+        @"refreshPreferencesWritten":@(written),
+        @"refreshPreferencesErrno":@(savedErrno),
+        @"posterBoardRefreshRequested":@(requested),
+        @"refreshSpawnResult":@(spawnResult),
+        @"refreshWaitErrno":@(waitError),
+        @"refreshProcessExitStatus":@(exitStatus)
+    } mutableCopy];
+    if (!written || !requested) {
+        NSString *detail = !written ?
+            [NSString stringWithFormat:@"Refresh preferences were not confirmed (errno %d: %s).", savedErrno, strerror(savedErrno)] :
+            (spawnResult != 0 ?
+                [NSString stringWithFormat:@"Could not start killall (result %d: %s).", spawnResult, strerror(spawnResult)] :
+                [NSString stringWithFormat:@"PosterBoard restart command exited with status %d.", exitStatus]);
+        result[@"refreshWarning"] = [NSString stringWithFormat:@"%@ Descriptor files remain published; a device restart or manual PosterBoard restart may be required.", detail];
+    }
+    return result;
+}
+
 @end
