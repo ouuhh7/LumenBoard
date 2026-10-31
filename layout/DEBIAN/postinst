@@ -1,29 +1,25 @@
 #!/bin/sh
 set -eu
 
-LABEL="system/com.iuyghi.lumenboardd"
+SERVICE="user/foreground/com.iuyghi.lumenboardd"
 PLIST="/var/jb/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist"
 
-# Make postinst repeatable when dpkg reconfigures an already-loaded service.
-if /bin/launchctl print "$LABEL" >/dev/null 2>&1; then
-    /bin/launchctl bootout "$LABEL"
+if /bin/launchctl print "$SERVICE" >/dev/null 2>&1; then
+    /bin/launchctl bootout "$SERVICE"
 fi
 
-# Do not hide launchd errors: dpkg must report a configuration failure if
-# the rootless daemon cannot be registered or started.
-/bin/launchctl bootstrap system "$PLIST"
-/bin/launchctl kickstart -k "$LABEL"
+# Dopamine rootless services run in the foreground user's launchd domain.
+# Use shell builtins for state inspection; do not depend on external grep/sleep.
+/bin/launchctl bootstrap user/foreground "$PLIST"
+/bin/launchctl kickstart -k "$SERVICE"
 
-attempt=0
-while [ "$attempt" -lt 10 ]; do
-    if service_state=$(/bin/launchctl print "$LABEL" 2>&1); then
-        if printf '%s\n' "$service_state" | /usr/bin/grep -Eq '(^|[[:space:]])pid = [1-9][0-9]*([[:space:]]|$)|state = running'; then
+if service_state=$(/bin/launchctl print "$SERVICE" 2>&1); then
+    case "$service_state" in
+        *"state = running"*|*"pid = "[1-9]*)
             exit 0
-        fi
-    fi
-    attempt=$((attempt + 1))
-    /bin/sleep 1
-done
+            ;;
+    esac
+fi
 
-echo "LumenBoard: launchd did not report the daemon as running ($LABEL)." >&2
+echo "LumenBoard: launchd did not report the daemon as running ($SERVICE)." >&2
 exit 1

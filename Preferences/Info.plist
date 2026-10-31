@@ -7,6 +7,6 @@
     CFBundleName = LumenBoardPrefs;
     CFBundlePackageType = BNDL;
     CFBundleShortVersionString = "0.1.0";
-    CFBundleVersion = "3";
+    CFBundleVersion = "4";
     NSPrincipalClass = LumenBoardRootListController;
 }

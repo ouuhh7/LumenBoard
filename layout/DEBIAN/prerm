@@ -1,11 +1,10 @@
 #!/bin/sh
 set -eu
 
-LABEL="system/com.iuyghi.lumenboardd"
+SERVICE="user/foreground/com.iuyghi.lumenboardd"
 
-# bootout stops the job and its process. Ignore only the already-absent case.
-if /bin/launchctl print "$LABEL" >/dev/null 2>&1; then
-    /bin/launchctl bootout "$LABEL"
+if /bin/launchctl print "$SERVICE" >/dev/null 2>&1; then
+    /bin/launchctl bootout "$SERVICE"
 fi
 
 exit 0
