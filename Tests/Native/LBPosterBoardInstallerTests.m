@@ -2,6 +2,14 @@
 #import "../../Daemon/LBPosterBoardInstaller.h"
 #import <sys/stat.h>
 #import <unistd.h>
+#import <signal.h>
+#import <errno.h>
+
+@interface LBPosterBoardInstaller (RefreshTesting)
++ (NSDictionary *)runRefreshCommandForTestingWithCandidates:(NSArray<NSString *> *)candidates
+                                                processName:(NSString *)processName
+                                                     timeout:(NSTimeInterval)timeout;
+@end
 
 @interface LBPosterBoardInstallerTests : XCTestCase
 @property(nonatomic, copy) NSString *temporaryRoot;
@@ -22,6 +30,15 @@
 - (void)tearDown {
     if (self.temporaryRoot.length) [[NSFileManager defaultManager] removeItemAtPath:self.temporaryRoot error:nil];
     [super tearDown];
+}
+
+- (NSString *)writeExecutableScript:(NSString *)name body:(NSString *)body {
+    NSString *path = [self.temporaryRoot stringByAppendingPathComponent:name];
+    NSString *script = [NSString stringWithFormat:@"#!/bin/sh\n%@\n", body];
+    NSError *error = nil;
+    XCTAssertTrue([script writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:&error], @"%@", error);
+    XCTAssertEqual(chmod(path.fileSystemRepresentation, 0755), 0);
+    return path;
 }
 
 - (BOOL)writePlist:(id)object toPath:(NSString *)path {
@@ -256,4 +273,71 @@
     XCTAssertEqualObjects(missing[@"presentDescriptorCount"], @0);
     XCTAssertEqualObjects(missing[@"missingDescriptorCount"], @1);
 }
+
+- (void)testRefreshResolverSkipsMissingCandidatesAndUsesFirstExecutable {
+    NSString *missing = [self.temporaryRoot stringByAppendingPathComponent:@"missing-killall"];
+    NSString *first = [self writeExecutableScript:@"first-killall" body:@"exit 0"];
+    NSString *second = [self writeExecutableScript:@"second-killall" body:@"exit 23"];
+    NSDictionary *result = [LBPosterBoardInstaller runRefreshCommandForTestingWithCandidates:@[missing, first, second]
+        processName:@"PosterBoard" timeout:2.0];
+    XCTAssertEqualObjects(result[@"refreshExecutable"], first);
+    XCTAssertEqualObjects(result[@"refreshCandidatePaths"], (@[missing, first]));
+    XCTAssertEqualObjects(result[@"posterBoardRefreshRequested"], @YES);
+    XCTAssertEqualObjects(result[@"refreshProcessExitStatus"], @0);
+    XCTAssertEqualObjects(result[@"refreshProcessTimedOut"], @NO);
+}
+
+- (void)testRefreshReportsENOENTWhenNoCandidateExists {
+    NSString *missingA = [self.temporaryRoot stringByAppendingPathComponent:@"missing-a"];
+    NSString *missingB = [self.temporaryRoot stringByAppendingPathComponent:@"missing-b"];
+    NSDictionary *result = [LBPosterBoardInstaller runRefreshCommandForTestingWithCandidates:@[missingA, missingB]
+        processName:@"PosterBoard" timeout:1.0];
+    XCTAssertEqualObjects(result[@"refreshSpawnResult"], @(ENOENT));
+    XCTAssertEqualObjects(result[@"refreshExecutable"], @"");
+    XCTAssertEqualObjects(result[@"refreshCandidatePaths"], (@[missingA, missingB]));
+    XCTAssertEqualObjects(result[@"posterBoardRefreshRequested"], @NO);
+}
+
+- (void)testRefreshReportsPosixSpawnFailureForMissingInterpreter {
+    NSString *script = [self writeExecutableScript:@"broken-interpreter"
+        body:@"exit 0"];
+    NSString *contents = @"#!/path/that/does/not/exist\nexit 0\n";
+    NSError *error = nil;
+    XCTAssertTrue([contents writeToFile:script atomically:YES encoding:NSUTF8StringEncoding error:&error], @"%@", error);
+    XCTAssertEqual(chmod(script.fileSystemRepresentation, 0755), 0);
+    NSDictionary *result = [LBPosterBoardInstaller runRefreshCommandForTestingWithCandidates:@[script]
+        processName:@"PosterBoard" timeout:1.0];
+    XCTAssertEqualObjects(result[@"refreshExecutable"], script);
+    XCTAssertEqualObjects(result[@"refreshSpawnResult"], @(ENOENT));
+    XCTAssertEqualObjects(result[@"posterBoardRefreshRequested"], @NO);
+}
+
+- (void)testRefreshReportsNonzeroChildExit {
+    NSString *script = [self writeExecutableScript:@"nonzero-killall" body:@"exit 23"];
+    NSDictionary *result = [LBPosterBoardInstaller runRefreshCommandForTestingWithCandidates:@[script]
+        processName:@"PosterBoard" timeout:1.0];
+    XCTAssertEqualObjects(result[@"refreshSpawnResult"], @0);
+    XCTAssertEqualObjects(result[@"refreshProcessExitStatus"], @23);
+    XCTAssertEqualObjects(result[@"posterBoardRefreshRequested"], @NO);
+}
+
+- (void)testRefreshReportsChildSignalTermination {
+    NSString *script = [self writeExecutableScript:@"signalled-killall" body:@"kill -TERM $$"];
+    NSDictionary *result = [LBPosterBoardInstaller runRefreshCommandForTestingWithCandidates:@[script]
+        processName:@"PosterBoard" timeout:2.0];
+    XCTAssertEqualObjects(result[@"refreshSpawnResult"], @0);
+    XCTAssertEqualObjects(result[@"refreshProcessTerminationSignal"], @(SIGTERM));
+    XCTAssertEqualObjects(result[@"posterBoardRefreshRequested"], @NO);
+}
+
+- (void)testRefreshTimeoutKillsAndReapsChild {
+    NSString *script = [self writeExecutableScript:@"slow-killall" body:@"exec /bin/sleep 30"];
+    NSDictionary *result = [LBPosterBoardInstaller runRefreshCommandForTestingWithCandidates:@[script]
+        processName:@"PosterBoard" timeout:0.15];
+    XCTAssertEqualObjects(result[@"refreshSpawnResult"], @0);
+    XCTAssertEqualObjects(result[@"refreshProcessTimedOut"], @YES);
+    XCTAssertEqualObjects(result[@"refreshProcessTerminationSignal"], @(SIGKILL));
+    XCTAssertEqualObjects(result[@"posterBoardRefreshRequested"], @NO);
+}
+
 @end
