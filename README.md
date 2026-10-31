@@ -4,7 +4,7 @@ LumenBoard is a rootless jailbreak package targeting arm64 iOS 16, including iPh
 
 ## Current status
 
-Package version under validation: 0.1.0-13 (iphoneos-arm64). LumenBoard now has a native Objective-C media descriptor generator ported and adapted from the PosterForge workflow. Imported photos and videos are no longer intentionally left in stored-only state: the Preferences pane queues an install-media request, the daemon verifies the managed source SHA-256, generates the PosterBoard descriptor tree, publishes it through the existing staged/collision-checked installer, and requests a PosterBoard refresh.
+Current CI package candidate: **0.1.0-15** (`iphoneos-arm64`). The Debian revision and Preferences `CFBundleVersion` are synchronized at 15. LumenBoard now has a native Objective-C media descriptor generator ported and adapted from the PosterForge workflow. Imported photos and videos are no longer intentionally left in stored-only state: the Preferences pane queues an install-media request, the daemon verifies the managed source SHA-256, generates the PosterBoard descriptor tree, publishes it through the existing staged/collision-checked installer, and requests a PosterBoard refresh.
 
 The generated descriptor includes provider descriptor and role identifiers, providerInfo.plist, provider contents user-info, Wallpaper.plist, Background/Floating Core Animation bundles, index.xml, main.caml, and JPEG assets. Video input is decoded into a looping sequence capped at 400 frames at 15 fps. Static images are supported. Optional Home blur is represented by a blurred Background layer and sharp Floating layer, but the current UI defaults this option off.
 
@@ -58,7 +58,7 @@ The inspector is a development/test utility; the Preferences app does not shell 
 
 ## Repository/publication status
 
-Development is maintained in the private GitHub repository `ouuhh7/LumenBoard`; active fixes are isolated on `fix/rootless-deb-installation`. The default branch is not modified.
+The public GitHub repository is `ouuhh7/LumenBoard`; active fixes and release validation are maintained on `fix/rootless-deb-installation`. The default branch `main` is kept separate from this work.
 
 ## Descriptor consistency checker
 
@@ -85,9 +85,9 @@ python3 tools/static_wallpaper_builder.py \
   --output /tmp/LumenBoard-Candidate.wallpaper
 ```
 
-The example paths after `descriptors/UUID/...` are placeholders and must be replaced with the exact tree and asset path present in the supplied archive. The tool produces a sibling `.report.json` sidecar. It does not rewrite descriptor UUIDs, wallpaper IDs, `providerInfo.plist`, `Wallpaper.plist`, provider user-info, or references outside the `.wallpaper` bundle. Consequently, its output is an offline candidate for comparison only—not an installable wallpaper descriptor and not proof of iOS 16.7.16 compatibility.
+The example paths after `descriptors/UUID/...` are placeholders and must be replaced with the exact tree and asset path present in the supplied archive. The tool produces a sibling `.report.json` sidecar. It does not rewrite descriptor UUIDs, wallpaper IDs, `providerInfo.plist`, `Wallpaper.plist`, provider user-info, or references outside the `.wallpaper` bundle. Consequently, this transformer's output is an offline candidate for comparison only—not an installable wallpaper descriptor and not proof of iOS 16.7.16 compatibility.
 
-Supported source formats are PNG and JPEG, with basic signature/dimension checks. Video, CAML generation, `.tendies` runtime import, native installation/removal, and PosterBoard refresh remain out of scope. No native PosterBoard writes are enabled.
+For this prototype, supported source formats are PNG and JPEG, with basic signature/dimension checks. This tool does not implement video, CAML generation, `.tendies` runtime import, native installation/removal, or PosterBoard refresh. These limitations do not describe the separate native daemon path.
 
 
 ## Experimental full static descriptor generator
@@ -99,7 +99,7 @@ python3 tools/static_descriptor_generator.py /path/to/photo.jpg /tmp/lb-candidat
 python3 tools/descriptor_consistency.py /tmp/lb-candidates
 ```
 
-This is structural validation only. A public iOS 16 dump from an iPhone 12 was found as a research lead, but the exact build/native rendering on iOS 16.7.16 and redistribution rights for its Apple assets are not verified; no third-party fixture is included. The generated empty `assetManifest.caml` is an unverified schema choice and must be compared with a real reference. No native PosterBoard write, refresh, import, update or removal is enabled. See `docs/ENGINE_PHASE_REPORT.md` for the fixture search, source attribution and three validation levels.
+This Python generator is an offline candidate-generation tool and is not the runtime import path. A public iOS 16 dump from an iPhone 12 was found as a research lead, but the exact build/native rendering on iOS 16.7.16 and redistribution rights for its Apple assets are not verified; no third-party fixture is included. The generated empty `assetManifest.caml` is an unverified schema choice and must be compared with a real reference. It does not itself write to PosterBoard or refresh the native gallery. See `docs/ENGINE_PHASE_REPORT.md` for the fixture search, source attribution and three validation levels.
 
 
 The 0.1.0-12 refresh path avoids an unnecessary `chown` when the PosterBoard preference file is already owned by `mobile`, which is required for the unprivileged `user/foreground` daemon. It also reports the precise preference ownership/write or process-restart failure instead of a generic refresh warning. CI can validate this code path, but only device testing can confirm PosterBoard reload and gallery recognition.
