@@ -244,17 +244,29 @@ class ProjectPackagingContractTests(unittest.TestCase):
         self.assertIn("CFBundleExecutable = LumenBoardPrefs;", info)
         self.assertIn("NSPrincipalClass = LumenBoardRootListController;", info)
 
-    def test_privileged_daemon_is_not_built_or_staged_in_baseline(self):
+    def test_native_daemon_is_built_and_staged_for_rootless_launchd(self):
         makefile = (self.PROJECT / "Makefile").read_text()
-        self.assertNotIn("TOOL_NAME = lumenboardd", makefile)
-        self.assertFalse((self.PROJECT / "layout" / "Library" / "LaunchDaemons" / "com.iuyghi.lumenboardd.plist").exists())
-        self.assertTrue((self.PROJECT / "Daemon" / "main.m").is_file())
-        self.assertTrue((self.PROJECT / "docs" / "prototypes" / "com.iuyghi.lumenboardd.plist").is_file())
+        self.assertIn("TOOL_NAME = lumenboardd", makefile)
+        self.assertIn("lumenboardd_INSTALL_PATH = /usr/libexec", makefile)
+        plist_path = self.PROJECT / "layout" / "Library" / "LaunchDaemons" / "com.iuyghi.lumenboardd.plist"
+        self.assertTrue(plist_path.is_file())
+        with plist_path.open("rb") as stream:
+            plist = plistlib.load(stream)
+        self.assertEqual(plist["Label"], "com.iuyghi.lumenboardd")
+        self.assertEqual(plist["ProgramArguments"][0], "/var/jb/usr/libexec/lumenboardd")
 
-    def test_maintainer_scripts_are_prototypes_not_package_hooks(self):
-        self.assertFalse((self.PROJECT / "layout" / "DEBIAN").exists())
-        self.assertTrue((self.PROJECT / "docs" / "prototypes" / "postinst").is_file())
-        self.assertTrue((self.PROJECT / "docs" / "prototypes" / "prerm").is_file())
+    def test_maintainer_scripts_are_packaged_executable_hooks(self):
+        control_dir = self.PROJECT / "layout" / "DEBIAN"
+        self.assertTrue(control_dir.is_dir())
+        for name in ("postinst", "prerm"):
+            script = control_dir / name
+            self.assertTrue(script.is_file())
+            self.assertTrue(script.stat().st_mode & stat.S_IXUSR)
+        postinst = (control_dir / "postinst").read_text()
+        prerm = (control_dir / "prerm").read_text()
+        self.assertIn("bootstrap user/foreground", postinst)
+        self.assertIn("system/com.iuyghi.lumenboardd", postinst)
+        self.assertIn("system/com.iuyghi.lumenboardd", prerm)
 
 if __name__ == "__main__":
     unittest.main()
