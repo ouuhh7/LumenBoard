@@ -309,5 +309,21 @@ class ProjectPackagingContractTests(unittest.TestCase):
         self.assertIn("if(e.ignoredMetadata)continue;", source)
         self.assertIn("ignoredMetadataEntries", source)
 
+
+    def test_duplicate_tendies_path_performs_read_only_live_store_verification(self):
+        installer = (self.PROJECT / "Daemon" / "LBPosterBoardInstaller.m").read_text()
+        header = (self.PROJECT / "Daemon" / "LBPosterBoardInstaller.h").read_text()
+        daemon = (self.PROJECT / "Daemon" / "main.m").read_text()
+        preferences = (self.PROJECT / "Preferences" / "LBRootListController.m").read_text()
+        self.assertIn("verifyRegisteredDescriptorIdentifiers:", installer)
+        self.assertIn("filesystem-registration-only", installer)
+        self.assertIn("posterBoardApplicationState", installer)
+        self.assertIn("verifyRegisteredDescriptorIdentifiers:", header)
+        self.assertIn("verify-tendies-registration", daemon)
+        self.assertIn("LBVerifyManagedTendiesRegistration", daemon)
+        self.assertIn("LBQueueTendiesVerificationAndWait", preferences)
+        self.assertIn("descriptorStoreState", preferences)
+        self.assertIn("native gallery visibility, selectability, or wallpaper application", preferences)
+
 if __name__ == "__main__":
     unittest.main()
