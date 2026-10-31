@@ -213,15 +213,18 @@ static NSDictionary *LBQueueTendiesVerificationAndWait(NSString *identifier, NSE
         if (!manifest) continue;
         NSString *status = [manifest[@"status"] isKindOfClass:NSString.class] ? manifest[@"status"] : @"unknown";
         NSString *requestID = [manifest[@"daemonRequestID"] isKindOfClass:NSString.class] ? manifest[@"daemonRequestID"] : nil;
-        if ([status isEqualToString:@"registering"] && requestID.length) {
+        if (([status isEqualToString:@"registering"] || [status isEqualToString:@"generating"]) && requestID.length) {
             NSString *completionPath = [LBCompletedPath() stringByAppendingPathComponent:[requestID stringByAppendingPathExtension:@"plist"]];
             NSDictionary *completion = [NSDictionary dictionaryWithContentsOfFile:completionPath];
             if ([completion[@"requestID"] isEqualToString:requestID] && [completion[@"finished"] boolValue]) {
                 if ([completion[@"success"] boolValue]) {
                     manifest[@"status"] = @"registered-unverified";
-                    manifest[@"installationState"] = @"descriptors-published";
+                    BOOL mediaInstall = [completion[@"action"] isEqualToString:@"install-media"] ||
+                        [manifest[@"type"] isEqualToString:@"image"] || [manifest[@"type"] isEqualToString:@"video"];
+                    manifest[@"installationState"] = mediaInstall ? @"installed" : @"descriptors-published";
                     manifest[@"registeredAt"] = [NSDate date];
                     manifest[@"installationReport"] = completion[@"result"] ?: @{};
+                    manifest[@"installedDescriptorIdentifiers"] = completion[@"result"][@"installedDescriptorIdentifiers"] ?: @[];
                 } else {
                     manifest[@"status"] = @"failed";
                     manifest[@"installationState"] = @"failed";
@@ -234,12 +237,12 @@ static NSDictionary *LBQueueTendiesVerificationAndWait(NSString *identifier, NSE
             }
         }
         if ([status isEqualToString:@"registered-unverified"] || [status isEqualToString:@"imported"]) registered++;
-        else if ([status isEqualToString:@"registering"]) registering++;
+        else if ([status isEqualToString:@"registering"] || [status isEqualToString:@"generating"]) registering++;
         else if ([status isEqualToString:@"failed"] || [status isEqualToString:@"invalid"] || [status isEqualToString:@"unsupported"]) failed++;
         else stored++;
     }
     [self showMessage:@"LumenBoard library"
-        message:[NSString stringWithFormat:@"Descriptor records registered (PosterBoard visibility and application not device-verified): %lu\nRegistration pending: %lu\nFailed: %lu\nLocal-only or not yet imported: %lu",
+        message:[NSString stringWithFormat:@"Descriptor records registered (PosterBoard visibility and application not device-verified): %lu\nGeneration/registration pending: %lu\nFailed: %lu\nLocal-only or not yet imported: %lu",
             (unsigned long)registered, (unsigned long)registering, (unsigned long)failed, (unsigned long)stored]];
 }
 
