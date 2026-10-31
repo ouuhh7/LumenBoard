@@ -174,6 +174,45 @@ static NSDictionary *LBProcessImportRequest(NSDictionary *request, NSError **err
     return report;
 }
 
+
+static NSDictionary *LBVerifyManagedTendiesRegistration(NSDictionary *request, NSError **error) {
+    NSString *identifier = [request[@"identifier"] isKindOfClass:NSString.class] ? request[@"identifier"] : nil;
+    NSDictionary *item = LBLoadManagedTendiesItem(identifier, error);
+    if (!item) return nil;
+    NSDictionary *manifest = item[@"manifest"];
+    NSArray *installedIdentifiers = [manifest[@"installedDescriptorIdentifiers"] isKindOfClass:NSArray.class] ?
+        manifest[@"installedDescriptorIdentifiers"] : nil;
+    if (installedIdentifiers.count == 0) {
+        if (error) *error = [NSError errorWithDomain:@"com.iuyghi.LumenBoard.Daemon" code:120
+            userInfo:@{NSLocalizedDescriptionKey:@"This managed archive has no durable list of published descriptor UUIDs; filesystem reconciliation is unavailable."}];
+        return nil;
+    }
+
+    NSString *container = [LBPosterBoardInstaller findPosterBoardContainer:error];
+    if (!container) return nil;
+    NSDictionary *verification = [LBPosterBoardInstaller verifyRegisteredDescriptorIdentifiers:installedIdentifiers
+        posterBoardContainer:container error:error];
+    if (!verification) return nil;
+
+    NSMutableDictionary *updatedManifest = [manifest mutableCopy];
+    updatedManifest[@"lastRegistrationVerification"] = verification;
+    updatedManifest[@"lastRegistrationVerificationAt"] = [NSDate date];
+    NSData *data = [NSPropertyListSerialization dataWithPropertyList:updatedManifest
+        format:NSPropertyListBinaryFormat_v1_0 options:0 error:error];
+    if (!data || ![data writeToFile:item[@"manifestPath"] options:NSDataWritingAtomic error:error]) return nil;
+    if (!LBEnsureMobileOwnership(item[@"manifestPath"])) {
+        if (error) *error = [NSError errorWithDomain:@"com.iuyghi.LumenBoard.Daemon" code:121
+            userInfo:@{NSLocalizedDescriptionKey:@"Descriptor verification completed, but the updated manifest's mobile ownership could not be confirmed."}];
+        return nil;
+    }
+    chmod([item[@"manifestPath"] fileSystemRepresentation], 0600);
+
+    NSMutableDictionary *result = [verification mutableCopy];
+    result[@"manifestUpdated"] = @YES;
+    result[@"registeredArchiveSHA256"] = item[@"sha256"];
+    return result;
+}
+
 static void LBProcessRequests(void) {
     [LBRequestLock lock];
     @try {
@@ -213,6 +252,8 @@ static void LBProcessRequests(void) {
             NSString *action = [request[@"action"] isKindOfClass:NSString.class] ? request[@"action"] : @"";
             if ([action isEqualToString:@"import-tendies"]) {
                 operationResult = LBProcessImportRequest(request, &operationError);
+            } else if ([action isEqualToString:@"verify-tendies-registration"]) {
+                operationResult = LBVerifyManagedTendiesRegistration(request, &operationError);
             } else {
                 operationError = [NSError errorWithDomain:@"com.iuyghi.LumenBoard.Daemon" code:110 userInfo:@{NSLocalizedDescriptionKey:@"Unsupported daemon action."}];
             }
