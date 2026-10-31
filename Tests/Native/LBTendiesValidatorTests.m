@@ -181,6 +181,40 @@ static NSData *StoredZipWithDescriptor(NSString *entryName, NSData *payload, BOO
     NSError *e=nil; NSDictionary *r=[LBTendiesValidator validateArchiveAtPath:p extractToPath:nil error:&e];
     XCTAssertNotNil(e); XCTAssertEqualObjects(r[@"status"],@"invalid"); [[NSFileManager defaultManager]removeItemAtPath:p error:nil];
 }
+- (void)testAcceptsExplicitDirectoryEntriesWithNestedFiles {
+    NSDictionary *wp=@{@"identifier":@1,@"name":@"Synthetic",@"assets":@{}};
+    NSData *plist=[NSPropertyListSerialization dataWithPropertyList:wp format:NSPropertyListXMLFormat_v1_0 options:0 error:nil];
+    NSData *empty=[NSData data];
+    NSString *p=[self writeZip:StoredZip(@[
+        @{@"name":@"descriptors/",@"data":empty},
+        @{@"name":@"descriptors/fixture/",@"data":empty},
+        @{@"name":@"descriptors/fixture/Wallpaper.plist",@"data":plist}
+    ],NO)];
+    NSError *e=nil; NSDictionary *r=[LBTendiesValidator validateArchiveAtPath:p extractToPath:nil error:&e];
+    XCTAssertNil(e); XCTAssertEqualObjects(r[@"status"],@"valid");
+    [[NSFileManager defaultManager]removeItemAtPath:p error:nil];
+}
+- (void)testRejectsFileUsedAsAncestorOfNestedPath {
+    NSData *empty=[NSData data];
+    NSString *p=[self writeZip:StoredZip(@[
+        @{@"name":@"descriptors/fixture",@"data":empty},
+        @{@"name":@"descriptors/fixture/Wallpaper.plist",@"data":empty}
+    ],NO)];
+    NSError *e=nil; NSDictionary *r=[LBTendiesValidator validateArchiveAtPath:p extractToPath:nil error:&e];
+    XCTAssertNotNil(e); XCTAssertEqualObjects(r[@"status"],@"invalid");
+    [[NSFileManager defaultManager]removeItemAtPath:p error:nil];
+}
+- (void)testRejectsFileReplacingExistingDirectoryDescendants {
+    NSData *empty=[NSData data];
+    NSString *p=[self writeZip:StoredZip(@[
+        @{@"name":@"descriptors/fixture/Wallpaper.plist",@"data":empty},
+        @{@"name":@"descriptors/fixture",@"data":empty}
+    ],NO)];
+    NSError *e=nil; NSDictionary *r=[LBTendiesValidator validateArchiveAtPath:p extractToPath:nil error:&e];
+    XCTAssertNotNil(e); XCTAssertEqualObjects(r[@"status"],@"invalid");
+    [[NSFileManager defaultManager]removeItemAtPath:p error:nil];
+}
+
 - (void)testRejectsMalformedWallpaperPlist {
     NSString *p=[self writeZip:StoredZip(@[@{@"name":@"descriptors/fixture/Wallpaper.plist",@"data":[@"<plist><bad>" dataUsingEncoding:NSUTF8StringEncoding]}],NO)];
     NSError *e=nil; NSDictionary *r=[LBTendiesValidator validateArchiveAtPath:p extractToPath:nil error:&e];
