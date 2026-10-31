@@ -4,11 +4,11 @@ LumenBoard is a rootless jailbreak package targeting arm64 iOS 16, including iPh
 
 ## Current status
 
-Package version under validation: `0.1.0-6` (`iphoneos-arm64`). The package compiles the Preferences bundle and `lumenboardd`; the daemon is staged at `/var/jb/usr/libexec/lumenboardd` and registered through `/var/jb/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist` in Dopamine's `user/foreground` launchd domain.
+Package version under validation: `0.1.0-7` (`iphoneos-arm64`). The package compiles the Preferences bundle and `lumenboardd`; the daemon is staged at `/var/jb/usr/libexec/lumenboardd` and registered through `/var/jb/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist` in Dopamine's `user/foreground` launchd domain.
 
 The Preferences pane stores photo/video selections as local source imports. `.tendies` archives are copied into the managed library, validated, submitted to the daemon, and—when accepted—published as descriptor records into the iOS 16 Collections store. The UI distinguishes descriptor publication from confirmed gallery visibility, selection, and wallpaper application.
 
-The package has passed native XCTest and rootless package validation in earlier CI runs. Version `0.1.0-6` adds maintainer-script regression tests and strict handling of launchctl's already-bootstrapped status. CI success does not prove installation or PosterBoard rendering on the target iPhone. Device validation remains mandatory.
+The package has passed native XCTest and rootless package validation in earlier CI runs. Version `0.1.0-7` adds maintainer-script regression tests and strict handling of launchctl's already-bootstrapped status. CI success does not prove installation or PosterBoard rendering on the target iPhone. Device validation remains mandatory.
 
 Not claimed: a complete photo/video-to-CAML conversion pipeline, safe native removal of published descriptors, or verified wallpaper rendering on iOS 16.7.16. Removing a source from LumenBoard's local library does not remove an already-published PosterBoard descriptor.
 

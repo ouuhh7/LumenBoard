@@ -3,7 +3,7 @@
 ## Latest candidate
 
 - Package: `com.iuyghi.lumenboard`
-- Version: `0.1.0-6`
+- Version: `0.1.0-7`
 - Architecture: `iphoneos-arm64`
 - Branch: `fix/rootless-deb-installation`
 - CI: native XCTest + rootless package build/verification + maintainer-script regression tests
@@ -25,8 +25,8 @@ Capture dpkg output, launchctl print output, daemon log, the managed item manife
 ## Evidence boundary
 
 - Previous CI run for version `0.1.0-5`: 39 native XCTest cases passed; rootless package artifact independently extracted and hashed.
-- Version `0.1.0-6`: adds shell regression coverage for fresh bootstrap, repeated configure with launchctl status 37, rejection of misleading status 5, bootstrap failure, kickstart failure, and idempotent prerm behavior. Await the CI result for this exact commit before treating the candidate as validated.
-- Device: user-reported installs of `0.1.0-3` and `0.1.0-4` failed in maintainer scripts. The `0.1.0-6` change addresses the observed already-bootstrapped case but still requires target-device testing.
+- Version `0.1.0-7`: adds shell regression coverage for fresh bootstrap, repeated configure with launchctl status 37, rejection of misleading status 5, bootstrap failure, kickstart failure, and idempotent prerm behavior. Await the CI result for this exact commit before treating the candidate as validated.
+- Device: user-reported installs of `0.1.0-3` and `0.1.0-4` failed in maintainer scripts. The `0.1.0-7` change addresses the observed already-bootstrapped case but still requires target-device testing.
 - PosterBoard: gallery visibility and rendering remain unverified.
 
 ## Local build
