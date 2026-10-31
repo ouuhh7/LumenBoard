@@ -278,8 +278,8 @@ jobs:
           if not matches:
               raise SystemExit("FAIL: unittest summary not found")
           count = int(matches[-1])
-          if count != 68:
-              raise SystemExit(f"FAIL: expected historical reference of 68 tests, got {count}")
+          if count < 68:
+              raise SystemExit(f"FAIL: expected at least 68 regression tests, got {count}")
           if not re.search(r"^OK\s*$", log, re.M):
               raise SystemExit("FAIL: unittest output does not end in OK")
           print(f"PASS: {count} unit tests")
