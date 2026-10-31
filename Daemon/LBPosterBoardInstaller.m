@@ -412,6 +412,75 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
     return nil;
 }
 
++ (NSDictionary *)verifyRegisteredDescriptorIdentifiers:(NSArray<NSString *> *)identifiers
+                                             posterBoardContainer:(NSString *)containerPath
+                                                             error:(NSError **)error {
+    if (![identifiers isKindOfClass:NSArray.class] || identifiers.count == 0 || identifiers.count > 256) {
+        if (error) *error = LBInstallError(55, @"No bounded list of previously registered descriptor identifiers was supplied.");
+        return nil;
+    }
+    if (!LBIsDirectory(containerPath)) {
+        if (error) *error = LBInstallError(56, @"The resolved PosterBoard container is not a regular directory.");
+        return nil;
+    }
+
+    NSString *descriptorRoot = [[containerPath stringByAppendingPathComponent:@"Library/Application Support/PRBPosterExtensionDataStore/59/Extensions"]
+        stringByAppendingPathComponent:[LBCollectionsExtension stringByAppendingPathComponent:@"descriptors"]];
+    NSMutableArray<NSString *> *present = [NSMutableArray array];
+    NSMutableArray<NSString *> *missing = [NSMutableArray array];
+    NSMutableArray<NSDictionary *> *invalid = [NSMutableArray array];
+    NSMutableSet<NSString *> *seen = [NSMutableSet set];
+
+    for (id value in identifiers) {
+        if (![value isKindOfClass:NSString.class]) {
+            if (error) *error = LBInstallError(57, @"A stored descriptor identifier is not a string.");
+            return nil;
+        }
+        NSString *uuid = [(NSString *)value uppercaseString];
+        NSUUID *parsed = [[NSUUID alloc] initWithUUIDString:uuid];
+        if (!parsed || ![parsed.UUIDString isEqualToString:uuid] || [seen containsObject:uuid]) {
+            if (error) *error = LBInstallError(58, @"The stored descriptor identifier list contains an invalid or duplicate UUID.");
+            return nil;
+        }
+        [seen addObject:uuid];
+        NSString *descriptorPath = [descriptorRoot stringByAppendingPathComponent:uuid];
+        if (!LBIsDirectory(descriptorPath)) {
+            [missing addObject:uuid];
+            continue;
+        }
+        NSError *validationError = nil;
+        if (!LBValidateDescriptorTree(descriptorPath, &validationError)) {
+            [invalid addObject:@{
+                @"identifier": uuid,
+                @"error": validationError.localizedDescription ?: @"Descriptor structure validation failed."
+            }];
+            continue;
+        }
+        [present addObject:uuid];
+    }
+
+    NSString *state = @"complete";
+    if (invalid.count && present.count == 0) state = @"invalid";
+    else if (invalid.count) state = @"partial-invalid";
+    else if (missing.count && present.count) state = @"partial";
+    else if (missing.count) state = @"missing";
+
+    return @{
+        @"descriptorStoreState": state,
+        @"verificationScope": @"filesystem-registration-only",
+        @"posterBoardApplicationState": @"unverified",
+        @"expectedDescriptorCount": @(identifiers.count),
+        @"presentDescriptorCount": @(present.count),
+        @"missingDescriptorCount": @(missing.count),
+        @"invalidDescriptorCount": @(invalid.count),
+        @"presentDescriptorIdentifiers": present,
+        @"missingDescriptorIdentifiers": missing,
+        @"invalidDescriptors": invalid,
+        @"descriptorStructureVersion": @(LBExpectedStructureVersion),
+        @"extension": LBCollectionsExtension
+    };
+}
+
 + (NSDictionary *)installArchiveAtPath:(NSString *)archivePath posterBoardContainer:(NSString *)containerPath error:(NSError **)error {
     NSOperatingSystemVersion os = NSProcessInfo.processInfo.operatingSystemVersion;
     if (os.majorVersion != 16) {
