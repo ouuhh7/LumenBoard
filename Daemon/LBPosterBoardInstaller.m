@@ -563,7 +563,7 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
     int terminationSignal = 0;
     BOOL refreshRequested = NO;
     if (preferencesWritten) {
-        char *arguments[] = {"/usr/bin/killall", "-9", "PosterBoard", NULL};
+        char *arguments[] = {"/var/jb/usr/bin/killall", "-9", "PosterBoard", NULL};
         pid_t pid = 0;
         spawnResult = posix_spawn(&pid, arguments[0], NULL, NULL, arguments, environ);
         if (spawnResult == 0) {
@@ -597,13 +597,13 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
         if (!preferencesWritten) {
             detail = [NSString stringWithFormat:@"PosterBoard refresh preferences could not be written/owned (errno %d: %s).", preferencesErrno, strerror(preferencesErrno)];
         } else if (spawnResult != 0) {
-            detail = [NSString stringWithFormat:@"Could not start /usr/bin/killall (posix_spawn result %d: %s).", spawnResult, strerror(spawnResult)];
+            detail = [NSString stringWithFormat:@"Could not start /var/jb/usr/bin/killall (posix_spawn result %d: %s).", spawnResult, strerror(spawnResult)];
         } else if (waitError != 0) {
             detail = [NSString stringWithFormat:@"Could not collect the PosterBoard restart command result (errno %d: %s).", waitError, strerror(waitError)];
         } else if (terminationSignal != 0) {
             detail = [NSString stringWithFormat:@"The PosterBoard restart command was terminated by signal %d.", terminationSignal];
         } else {
-            detail = [NSString stringWithFormat:@"/usr/bin/killall exited with status %d; PosterBoard may not have been running or could not be signalled.", exitStatus];
+            detail = [NSString stringWithFormat:@"/var/jb/usr/bin/killall exited with status %d; PosterBoard may not have been running or could not be signalled.", exitStatus];
         }
         final[@"refreshWarning"] = [NSString stringWithFormat:@"%@ Descriptor files remain published; the refresh flags are %@. A device restart or manual PosterBoard restart may be required.", detail, preferencesWritten ? @"written" : @"not confirmed"];
     }
@@ -725,7 +725,7 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
     int spawnResult = -1, exitStatus = -1, waitError = 0;
     BOOL requested = NO;
     if (written) {
-        char *arguments[] = {"/usr/bin/killall", "-9", "PosterBoard", NULL};
+        char *arguments[] = {"/var/jb/usr/bin/killall", "-9", "PosterBoard", NULL};
         pid_t pid = 0;
         spawnResult = posix_spawn(&pid, arguments[0], NULL, NULL, arguments, environ);
         if (spawnResult == 0) {
@@ -749,7 +749,7 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
         NSString *detail = !written ?
             [NSString stringWithFormat:@"Refresh preferences were not confirmed (errno %d: %s).", savedErrno, strerror(savedErrno)] :
             (spawnResult != 0 ?
-                [NSString stringWithFormat:@"Could not start killall (result %d: %s).", spawnResult, strerror(spawnResult)] :
+                [NSString stringWithFormat:@"Could not start /var/jb/usr/bin/killall (result %d: %s).", spawnResult, strerror(spawnResult)] :
                 [NSString stringWithFormat:@"PosterBoard restart command exited with status %d.", exitStatus]);
         result[@"refreshWarning"] = [NSString stringWithFormat:@"%@ Descriptor files remain published; a device restart or manual PosterBoard restart may be required.", detail];
     }
