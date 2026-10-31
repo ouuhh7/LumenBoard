@@ -4,7 +4,7 @@
 
 ```text
 PreferenceLoader pane (foreground mobile user)
-  ├─ imports .tendies through UIDocumentPicker
+  ├─ imports static image/video sources or descriptor-format .tendies through UIDocumentPicker
   ├─ stores source archive + manifest under mobile Application Support
   ├─ writes bounded request plist into Requests/
   └─ polls Completed/ and reports registration state
@@ -14,15 +14,15 @@ launchd user/foreground/com.iuyghi.lumenboardd
        ├─ watches Darwin notification and polls request queue
        ├─ validates managed source identity + SHA-256
        ├─ discovers PosterBoard container by MCMMetadataIdentifier
-       ├─ validates/extracts descriptor archive
+       ├─ validates/extracts .tendies or generates a native image/video descriptor
        ├─ rewrites descriptor identifiers and stages trees
-       └─ publishes new UUID directories into CollectionsPoster/59
+       └─ publishes new UUID directories into CollectionsPoster/59 and requests refresh
 ```
 
 ## Package and launchd contract
 
 - Package: `com.iuyghi.lumenboard`
-- Current candidate: `0.1.0-9`
+- Current CI candidate: `0.1.0-15`
 - Debian architecture: `iphoneos-arm64`
 - Target: iOS 16.x, PosterBoard store structure 59, Collections extension
 - Daemon: `/var/jb/usr/libexec/lumenboardd`
@@ -33,7 +33,7 @@ The foreground user domain is intentional for Dopamine rootless. `postinst` firs
 
 ## IPC and local source storage
 
-`/var/mobile/Library/Application Support/LumenBoard/` contains `Library/<UUID>/source.tendies` and `manifest.plist`, `Requests/<request UUID>.plist`, and `Completed/<request UUID>.plist`.
+`/var/mobile/Library/Application Support/LumenBoard/` contains managed source files and `manifest.plist` under `Library/<UUID>/`, plus `Requests/<request UUID>.plist` and `Completed/<request UUID>.plist`. Media sources retain their validated source filename; `.tendies` archives use the private `source.tendies` filename.
 
 The pane writes a bounded request with a fixed action allowlist. The daemon validates UUID, manifest identity, source filename, size and SHA-256 before processing. There is no arbitrary destination-path IPC action. Requests are serialized under a daemon lock; completion records are written atomically. A pane timeout is represented as queued/pending, not successful installation.
 
