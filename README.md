@@ -4,7 +4,7 @@ LumenBoard is a rootless jailbreak package targeting arm64 iOS 16, including iPh
 
 ## Current status
 
-Package version under validation: `0.1.0-9` (`iphoneos-arm64`). The package compiles the Preferences bundle and `lumenboardd`; the daemon is staged at `/var/jb/usr/libexec/lumenboardd` and registered through `/var/jb/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist` in Dopamine's `user/foreground` launchd domain.
+Package version under validation: `0.1.0-10` (`iphoneos-arm64`). The native Tendies validator now excludes mirrored `__MACOSX`/`MACOSX`, AppleDouble `._*`, and `.DS_Store` metadata from PosterBoard interpretation and extraction while continuing to validate ZIP paths, size limits, compression and CRCs. The package compiles the Preferences bundle and `lumenboardd`; the daemon is staged at `/var/jb/usr/libexec/lumenboardd` and registered through `/var/jb/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist` in Dopamine's `user/foreground` launchd domain.
 
 The Preferences pane stores photo/video selections as local source imports. `.tendies` archives are copied into the managed library, validated, submitted to the daemon, and—when accepted—published as descriptor records into the iOS 16 Collections store. The UI distinguishes descriptor publication from confirmed gallery visibility, selection, and wallpaper application.
 
