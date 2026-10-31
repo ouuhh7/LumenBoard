@@ -11,6 +11,11 @@ on:
       - fix/rootless-deb-installation
   workflow_dispatch:
 
+# Keep only the newest validation run for a branch; older commits are superseded.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
