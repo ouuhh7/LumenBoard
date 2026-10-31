@@ -77,6 +77,16 @@ class NativeMediaPipelineContractTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, source)
 
+    def test_posterboard_index_xml_uses_xml_property_list_format(self):
+        source = (ROOT / "Daemon/LBPosterMediaBuilder.m").read_text()
+        self.assertIn("NSPropertyListXMLFormat_v1_0", source)
+        self.assertIn("LBMediaWriteXMLPlist(index", source)
+        self.assertIn('"dynamicGuidesEnabled":@YES', source)
+        self.assertIn('"presentationTouchEventsEnabled":@NO', source)
+        self.assertIn("documentResizesToView:NO scalesToFitInPlayer:NO", source)
+        self.assertIn("documentResizesToView:YES scalesToFitInPlayer:YES", source)
+        self.assertNotIn("LBMediaWritePlist(index", source)
+
     def test_package_and_preferences_versions_are_synchronized(self):
         control = (ROOT / "control").read_text()
         match = re.search(r"^Version:\s*(\S+)$", control, re.MULTILINE)
