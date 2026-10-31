@@ -19,6 +19,12 @@ static BOOL LBMediaWritePlist(id object, NSString *path, NSError **error) {
     return data && [data writeToFile:path options:NSDataWritingAtomic error:error];
 }
 
+static BOOL LBMediaWriteXMLPlist(id object, NSString *path, NSError **error) {
+    NSData *data = [NSPropertyListSerialization dataWithPropertyList:object
+        format:NSPropertyListXMLFormat_v1_0 options:0 error:error];
+    return data && [data writeToFile:path options:NSDataWritingAtomic error:error];
+}
+
 static BOOL LBMediaWriteText(NSString *value, NSString *path, NSError **error) {
     return [value writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:error];
 }
@@ -53,24 +59,45 @@ static BOOL LBMediaWriteJPEG(UIImage *image, NSString *path, CGFloat quality, NS
 
 @implementation LBPosterMediaBuilder
 
-+ (BOOL)writeIndexAt:(NSString *)directory width:(NSInteger)width height:(NSInteger)height error:(NSError **)error {
++ (BOOL)writeIndexAt:(NSString *)directory width:(NSInteger)width height:(NSInteger)height
+    documentResizesToView:(BOOL)resizesToView scalesToFitInPlayer:(BOOL)scalesToFitInPlayer error:(NSError **)error {
+    // PosterBoard's index.xml is an XML property list (not a binary plist).
+    // Match the structure emitted by the public Nugget VideoCAML generator.
     NSDictionary *index = @{
         @"assetManifest":@"assetManifest.caml",
-        @"documentHeight":@(height),
-        @"documentResizesToView":@YES,
-        @"documentWidth":@(width),
+        @"documentHeight":@((double)height),
+        @"documentResizesToView":@(resizesToView),
+        @"documentWidth":@((double)width),
+        @"dynamicGuidesEnabled":@YES,
         @"geometryFlipped":@NO,
+        @"guidesEnabled":@YES,
+        @"interactiveMouseEventsEnabled":@YES,
+        @"interactiveShowsCursor":@YES,
+        @"interactiveTouchEventsEnabled":@NO,
+        @"loopEnd":@0.0,
+        @"loopStart":@0.0,
+        @"loopingEnabled":@NO,
+        @"multitouchDisablesMouse":@NO,
+        @"multitouchEnabled":@NO,
+        @"presentationMouseEventsEnabled":@YES,
+        @"presentationShowsCursor":@YES,
+        @"presentationTouchEventsEnabled":@NO,
         @"rootDocument":@"main.caml",
-        @"scalesToFitInPlayer":@YES,
+        @"savesWindowFrame":@NO,
+        @"scalesToFitInPlayer":@(scalesToFitInPlayer),
+        @"showsTouches":@YES,
+        @"snappingEnabled":@YES,
+        @"timelineMarkers":@"[(null)]",
+        @"touchesColor":@"1 1 0 0.8",
         @"unitsInPixelsInPlayer":@YES
     };
-    return LBMediaWritePlist(index, [directory stringByAppendingPathComponent:@"index.xml"], error);
+    return LBMediaWriteXMLPlist(index, [directory stringByAppendingPathComponent:@"index.xml"], error);
 }
 
 + (BOOL)writeEmptyLayerAt:(NSString *)directory error:(NSError **)error {
     NSString *caml = @"<?xml version=\"1.0\" encoding=\"UTF-8\"?><caml xmlns=\"http://www.apple.com/CoreAnimation/1.0\"><CALayer bounds=\"0 0 1 1\" hidden=\"0\" name=\"_FLOATING\" position=\"0.5 0.5\"><sublayers/></CALayer></caml>";
     return LBMediaWriteText(caml, [directory stringByAppendingPathComponent:@"main.caml"], error) &&
-        [self writeIndexAt:directory width:1 height:1 error:error];
+        [self writeIndexAt:directory width:1 height:1 documentResizesToView:NO scalesToFitInPlayer:NO error:error];
 }
 
 + (BOOL)buildAnimationAt:(NSString *)directory source:(NSString *)source kind:(NSString *)kind
@@ -143,7 +170,7 @@ static BOOL LBMediaWriteJPEG(UIImage *image, NSString *path, CGFloat quality, NS
         (long)width, (long)height, width/2.0, height/2.0,
         (long)width, (long)height, width/2.0, height/2.0, animation];
     return LBMediaWriteText(caml, [directory stringByAppendingPathComponent:@"main.caml"], error) &&
-        [self writeIndexAt:directory width:width height:height error:error];
+        [self writeIndexAt:directory width:width height:height documentResizesToView:YES scalesToFitInPlayer:YES error:error];
 }
 
 + (NSString *)buildDescriptorForSource:(NSString *)sourcePath kind:(NSString *)kind title:(NSString *)title
