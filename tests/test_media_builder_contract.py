@@ -74,7 +74,7 @@ class NativeMediaPipelineContractTests(unittest.TestCase):
 
     def test_package_and_preferences_versions_are_synchronized(self):
         control = (ROOT / "control").read_text()
-        match = re.search(r"^Version:\\s*(\\S+)$", control, re.MULTILINE)
+        match = re.search(r"^Version:\s*(\S+)$", control, re.MULTILINE)
         self.assertIsNotNone(match)
         package_version = match.group(1)
         self.assertEqual(package_version, "0.1.0-15")
