@@ -59,6 +59,15 @@ def _safe_member(info: zipfile.ZipInfo) -> str:
     return "/".join(parts)
 
 
+def _is_macos_metadata_path(name: str) -> bool:
+    """Return True for Finder metadata that must not enter a PosterBoard tree."""
+    for component in name.split("/"):
+        folded = component.casefold()
+        if folded in {"__macosx", "macosx", ".ds_store"} or folded.startswith("._"):
+            return True
+    return False
+
+
 def _reject_unsupported_zip_layout(archive: Path) -> None:
     """Reject multi-disk and ZIP64 archives rather than guessing their boundaries."""
     with archive.open("rb") as stream:
@@ -144,6 +153,7 @@ def inspect_archive(archive: Path) -> dict[str, Any]:
         has_descriptor = False
         has_container = False
         plist_paths: list[str] = []
+        ignored_metadata_paths: set[str] = set()
         for info in infos:
             name = _safe_member(info)
             key = unicodedata.normalize("NFD", name).casefold()
@@ -171,15 +181,19 @@ def inspect_archive(archive: Path) -> dict[str, Any]:
                 raise TendiesError(f"invalid compressed size for {name!r}")
             if info.compress_size > 0 and info.file_size / info.compress_size > MAX_COMPRESSION_RATIO:
                 raise TendiesError(f"compression ratio exceeds safety limit: {name!r}")
-            parts = name.split("/")
-            low_parts = [part.casefold() for part in parts]
-            if any(part == "container" for part in low_parts):
-                has_container = True
-            directory_parts = low_parts if info.is_dir() else low_parts[:-1]
-            if any("descriptor" in part for part in directory_parts):
-                has_descriptor = True
-            if name.casefold().endswith(".plist"):
-                plist_paths.append(name)
+            is_macos_metadata = _is_macos_metadata_path(name)
+            if is_macos_metadata:
+                ignored_metadata_paths.add(name)
+            else:
+                parts = name.split("/")
+                low_parts = [part.casefold() for part in parts]
+                if any(part == "container" for part in low_parts):
+                    has_container = True
+                directory_parts = low_parts if info.is_dir() else low_parts[:-1]
+                if any("descriptor" in part for part in directory_parts):
+                    has_descriptor = True
+                if name.casefold().endswith(".plist"):
+                    plist_paths.append(name)
             normalized.append((info, name))
         if has_container:
             raise TendiesError("container-format package rejected; only descriptor-format .tendies is accepted")
@@ -226,6 +240,7 @@ def inspect_archive(archive: Path) -> dict[str, Any]:
             "archive": archive.name,
             "archive_bytes": size,
             "entries": len(infos),
+            "ignored_metadata_entries": len(ignored_metadata_paths),
             "uncompressed_bytes": total,
             "plist_entries": len(plist_paths),
             "parseable_plists": parseable_plists,
@@ -248,6 +263,8 @@ def extract_verified(archive: Path, destination: Path) -> dict[str, Any]:
         with zipfile.ZipFile(archive, "r") as zf:
             for info in zf.infolist():
                 relative = _safe_member(info)
+                if _is_macos_metadata_path(relative):
+                    continue
                 target = root.joinpath(*PurePosixPath(relative).parts)
                 # Resolve existing parents and assert they remain under the empty output root.
                 target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
