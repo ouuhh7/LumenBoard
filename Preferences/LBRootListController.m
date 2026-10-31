@@ -493,9 +493,48 @@ static NSDictionary *LBQueueTendiesVerificationAndWait(NSString *identifier, NSE
                                     }
                                 }
                             } else if (!duplicateHandled) {
-                                manifest[@"status"] = @"stored-only";
-                                stored = LBWriteManagedManifest(manifest, itemDirectory, &error);
-                                finalStatus = stored ? @"stored-only" : @"failed";
+                                manifest[@"status"] = @"generating";
+                                manifest[@"installationState"] = @"queued";
+                                manifest[@"homeBlur"] = @NO;
+                                if (LBWriteManagedManifest(manifest, itemDirectory, &error)) {
+                                    NSString *requestID = nil;
+                                    NSError *daemonError = nil;
+                                    NSDictionary *completion = LBQueueDaemonActionAndWait(identifier, @"install-media", &requestID, &daemonError);
+                                    if (requestID.length) manifest[@"daemonRequestID"] = requestID;
+                                    if (completion && [completion[@"success"] boolValue]) {
+                                        NSDictionary *report = [completion[@"result"] isKindOfClass:NSDictionary.class] ? completion[@"result"] : @{};
+                                        manifest[@"status"] = @"registered-unverified";
+                                        manifest[@"installationState"] = @"installed";
+                                        manifest[@"installationReport"] = report;
+                                        manifest[@"installedDescriptorIdentifiers"] = report[@"installedDescriptorIdentifiers"] ?: @[];
+                                        manifest[@"registeredAt"] = [NSDate date];
+                                        [manifest removeObjectForKey:@"daemonRequestID"];
+                                        finalStatus = @"registered-unverified";
+                                        stored = YES;
+                                        userMessage = @"The media was converted into a PosterBoard descriptor and published to the iOS 16 Collections store. Native gallery recognition, wallpaper selection, and actual application still require device verification.";
+                                        if ([report[@"refreshWarning"] isKindOfClass:NSString.class]) {
+                                            userMessage = [userMessage stringByAppendingFormat:@"\n\nRefresh warning: %@", report[@"refreshWarning"]];
+                                        }
+                                    } else if ([completion[@"timedOut"] boolValue]) {
+                                        manifest[@"status"] = @"generating";
+                                        manifest[@"installationState"] = @"queued";
+                                        manifest[@"installationError"] = daemonError.localizedDescription ?: @"The media generation request is still queued.";
+                                        finalStatus = @"generating";
+                                        stored = YES;
+                                        error = daemonError;
+                                    } else {
+                                        manifest[@"status"] = @"failed";
+                                        manifest[@"installationState"] = @"failed";
+                                        manifest[@"installationError"] = daemonError.localizedDescription ?: @"Native media wallpaper generation failed.";
+                                        finalStatus = @"failed";
+                                        error = daemonError;
+                                    }
+                                    LBWriteManagedManifest(manifest, itemDirectory, nil);
+                                } else {
+                                    manifest[@"status"] = @"failed";
+                                    manifest[@"installationState"] = @"not-queued";
+                                    finalStatus = @"failed";
+                                }
                             }
                         }
                     } else if (!error) {
@@ -530,6 +569,12 @@ static NSDictionary *LBQueueTendiesVerificationAndWait(NSString *identifier, NSE
                 title = @".tendies import failed";
                 message = error.localizedDescription ?: @"Validation or PosterBoard registration failed. The source was retained for inspection.";
             }
+        } else if ([finalStatus isEqualToString:@"registered-unverified"]) {
+            title = @"Wallpaper descriptor registered";
+            message = userMessage ?: @"The native descriptor was published. Gallery visibility and wallpaper application remain unverified on this device.";
+        } else if ([finalStatus isEqualToString:@"generating"]) {
+            title = @"Wallpaper generation queued";
+            message = @"The source is preserved in the LumenBoard library. Native descriptor generation is still queued; use Refresh local library to check the daemon result.";
         } else {
             title = stored ? @"Import complete" : @"Import failed";
             message = stored ? @"The source is stored in LumenBoard's local library." : (error.localizedDescription ?: @"Unknown import error.");
