@@ -8,9 +8,9 @@ THEOS_PLATFORM_DEB_COMPRESSION_TYPE = xz
 include $(THEOS)/makefiles/common.mk
 
 TOOL_NAME = lumenboardd
-lumenboardd_FILES = Daemon/main.m Daemon/LBPosterBoardInstaller.m Preferences/LBTendiesValidator.m Shared/LBPaths.m
+lumenboardd_FILES = Daemon/main.m Daemon/LBPosterBoardInstaller.m Daemon/LBPosterMediaBuilder.m Preferences/LBTendiesValidator.m Shared/LBPaths.m
 lumenboardd_CFLAGS = -fobjc-arc -Wall -Wextra
-lumenboardd_FRAMEWORKS = Foundation CoreFoundation
+lumenboardd_FRAMEWORKS = Foundation CoreFoundation UIKit AVFoundation CoreImage CoreGraphics
 lumenboardd_LIBRARIES = z
 lumenboardd_INSTALL_PATH = /usr/libexec
 include $(THEOS_MAKE_PATH)/tool.mk
