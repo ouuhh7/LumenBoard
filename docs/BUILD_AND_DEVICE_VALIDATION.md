@@ -1,6 +1,19 @@
 # Build, package, and device validation
 
-## Latest verified candidate
+> **Current-state note (0.1.0-15):** the detailed build record below is a historical 0.1.0-9 snapshot, not evidence for the current package. The active candidate is maintained on `fix/rootless-deb-installation`; Debian version and Preferences `CFBundleVersion` are now `0.1.0-15`. The current commit-specific CI and artifact evidence is delivered in the final 0.1.0-15 audit report. Native PosterBoard gallery recognition and wallpaper application remain device-only checks.
+
+## Current candidate contract
+
+- Package: `com.iuyghi.lumenboard`
+- Debian version: `0.1.0-15`
+- Preferences `CFBundleVersion`: `15`
+- Architecture: `iphoneos-arm64`
+- Working branch: `fix/rootless-deb-installation`
+- Main branch remains separate and unchanged.
+- The active workflow validates portable tests, macOS XCTest, rootless package construction and archive contents. A successful build does not establish actual iPhone installation or PosterBoard rendering.
+
+
+## Historical verified candidate 0.1.0-9 (superseded)
 
 - Package: `com.iuyghi.lumenboard`
 - Version: `0.1.0-9`

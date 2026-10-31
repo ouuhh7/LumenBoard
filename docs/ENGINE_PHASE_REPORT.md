@@ -1,3 +1,5 @@
+> **Historical phase report:** this document predates the current native image/video descriptor generator. Its older out-of-scope statements describe the earlier implementation phase, not the current source tree. The current generator is `Daemon/LBPosterMediaBuilder.m`; its generated descriptor format is structurally checked by the installer and automated tests, but compatibility with the private PosterBoard renderer still requires an iPhone test.
+
 <!-- Historical snapshot. This report describes the earlier offline-only generator phase; subsequent commits added the native .tendies daemon and descriptor publisher. Current authoritative implementation status: README.md, docs/ARCHITECTURE.md and docs/BUILD_AND_DEVICE_VALIDATION.md. -->
 
 # LumenBoard engine phase report

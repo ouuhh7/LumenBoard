@@ -1,3 +1,5 @@
+> **Historical audit snapshot:** this report records an earlier repository state and must not be used as the current source inventory or release verdict. The current implementation and verification status are recorded in `README.md` and `docs/BUILD_AND_DEVICE_VALIDATION.md`.
+
 <!-- Historical snapshot. This report records the pre-integration review performed on 29 October 2026; subsequent commits added and packaged the daemon/descriptor importer. Current authoritative implementation status: README.md, docs/ARCHITECTURE.md and docs/BUILD_AND_DEVICE_VALIDATION.md. -->
 
 # LumenBoard-Development-Fresh — technical review

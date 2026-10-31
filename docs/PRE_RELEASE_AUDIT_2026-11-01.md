@@ -1,3 +1,5 @@
+> **Historical pre-0.1.0-15 snapshot:** this audit predates the version 0.1.0-15 changes, refresh process tests, and completed verifier correction. Its PR #1 status and version references describe the earlier point in the work. Use the final 0.1.0-15 audit report for the current result.
+
 # LumenBoard pre-release audit — 2026-11-01
 
 ## Scope

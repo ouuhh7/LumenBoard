@@ -30,6 +30,7 @@ jobs:
           set -euo pipefail
           python -m unittest discover -s tests -v
           python -m compileall -q tools tests
+          bash -n tools/build_and_verify_deb.sh
           python tools/tendies_inspect.py --help >/dev/null
           python tools/static_wallpaper_builder.py --help >/dev/null
           python tools/descriptor_consistency.py --help >/dev/null

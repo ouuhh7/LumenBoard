@@ -90,6 +90,13 @@ class NativeMediaPipelineContractTests(unittest.TestCase):
         self.assertIn(f'Version)" = "{package_version}"', workflow)
         self.assertIn(f'version" != "{package_version}"', helper)
 
+    def test_build_verifier_supports_macos_and_linux_hosts(self):
+        helper = (ROOT / "tools/build_and_verify_deb.sh").read_text()
+        self.assertIn("command -v xcrun", helper)
+        self.assertIn("THEOS/toolchain/linux/iphone/bin/clang", helper)
+        self.assertIn("shasum -a 256", helper)
+        self.assertIn("sha256sum", helper)
+
     def test_published_media_manifest_failure_is_reported_as_warning(self):
         source = (ROOT / "Daemon/main.m").read_text()
         start = source.index("static NSDictionary *LBProcessMediaInstallRequest")
