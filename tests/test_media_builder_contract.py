@@ -1,4 +1,6 @@
 from pathlib import Path
+import plistlib
+import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,7 +45,7 @@ class NativeMediaPipelineContractTests(unittest.TestCase):
 
     def test_posterboard_refresh_resolves_rootless_killall_before_stock_paths(self):
         source = (ROOT / "Daemon/LBPosterBoardInstaller.m").read_text()
-        self.assertIn("static NSString *LBResolveKillallExecutable(void)", source)
+        self.assertIn("static NSArray<NSString *> *LBKillallExecutableCandidates(void)", source)
         rootless = source.index('@"/var/jb/usr/bin/killall"')
         rootless_bin = source.index('@"/var/jb/bin/killall"')
         stock_usr = source.index('@"/usr/bin/killall"')
@@ -51,8 +53,37 @@ class NativeMediaPipelineContractTests(unittest.TestCase):
         self.assertLess(rootless, rootless_bin)
         self.assertLess(rootless_bin, stock_usr)
         self.assertLess(stock_usr, stock_bin)
+        self.assertIn("S_ISREG(candidateStat.st_mode)", source)
         self.assertIn("access(candidate.fileSystemRepresentation, X_OK) == 0", source)
-        self.assertEqual(source.count("LBResolveKillallExecutable()"), 4)
+        self.assertEqual(source.count('LBRunPosterBoardRefresh(LBKillallExecutableCandidates(), @"PosterBoard", 15.0)'), 2)
+
+    def test_refresh_process_wait_is_bounded_and_reports_all_terminal_states(self):
+        source = (ROOT / "Daemon/LBPosterBoardInstaller.m").read_text()
+        for token in (
+            "waitpid(pid, &status, WNOHANG)",
+            "errno == EINTR",
+            "WIFEXITED(status)",
+            "WIFSIGNALED(status)",
+            "kill(pid, SIGKILL)",
+            "refreshProcessTimedOut",
+            "refreshCandidatePaths",
+            "refreshProcessTerminationSignal",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, source)
+
+    def test_package_and_preferences_versions_are_synchronized(self):
+        control = (ROOT / "control").read_text()
+        match = re.search(r"^Version:\\s*(\\S+)$", control, re.MULTILINE)
+        self.assertIsNotNone(match)
+        package_version = match.group(1)
+        self.assertEqual(package_version, "0.1.0-15")
+        bundle_info = plistlib.loads((ROOT / "Preferences/Info.plist").read_bytes())
+        self.assertEqual(bundle_info["CFBundleVersion"], package_version.rsplit("-", 1)[1])
+        workflow = (ROOT / ".github/workflows/native-validator.yml").read_text()
+        helper = (ROOT / "tools/build_and_verify_deb.sh").read_text()
+        self.assertIn(f'Version)" = "{package_version}"', workflow)
+        self.assertIn(f'version" != "{package_version}"', helper)
 
     def test_timed_out_media_generation_is_reconciled(self):
         source = (ROOT / "Preferences/LBRootListController.m").read_text()
