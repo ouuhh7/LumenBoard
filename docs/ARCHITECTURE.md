@@ -29,7 +29,7 @@ launchd user/foreground/com.iuyghi.lumenboardd
 - LaunchDaemon plist: `/var/jb/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist`
 - Service identifier: `user/foreground/com.iuyghi.lumenboardd`
 
-The foreground user domain is intentional for Dopamine rootless. `postinst` accepts an already-registered service only when launchctl returns status 37 and includes the `service already bootstrapped` diagnostic. It then requests `kickstart`. A successful kickstart means launchd accepted the request; it does not prove the daemon remained alive or completed an import.
+The foreground user domain is intentional for Dopamine rootless. `postinst` first removes any stale registration left by the older `system`-domain implementation, refusing to start a second daemon if that legacy service cannot be stopped. It accepts an already-registered foreground service only when launchctl returns status 37 and includes the `service already bootstrapped` diagnostic, then requests `kickstart`. `prerm` attempts to stop both the current foreground service and the legacy system-domain service; it refuses package removal/upgrade if either remains registered. A successful kickstart means launchd accepted the request; it does not prove the daemon remained alive or completed an import.
 
 ## IPC and local source storage
 
