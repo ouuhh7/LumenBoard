@@ -545,8 +545,9 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
 // temporary executables. This method is intentionally absent from the public header.
 + (NSDictionary *)runRefreshCommandForTestingWithCandidates:(NSArray<NSString *> *)candidates
                                                 processName:(NSString *)processName
-                                                     timeout:(NSTimeInterval)timeout {
-    return LBRunPosterBoardRefresh(candidates, processName, timeout, LBDefaultWaitPID);
+                                                     timeout:(NSTimeInterval)timeout
+                                                waitFunction:(LBWaitPIDFunction)waitFunction {
+    return LBRunPosterBoardRefresh(candidates, processName, timeout, waitFunction ?: LBDefaultWaitPID);
 }
 
 + (NSString *)findPosterBoardContainer:(NSError **)error {
@@ -862,7 +863,7 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
         written = NO; savedErrno = errno;
     }
     NSDictionary *refresh = written ?
-        LBRunPosterBoardRefresh(LBKillallExecutableCandidates(), @"PosterBoard", 15.0) :
+        LBRunPosterBoardRefresh(candidates, @"PosterBoard", 15.0, LBDefaultWaitPID) :
         @{
             @"refreshExecutable": @"",
             @"refreshCandidatePaths": @[],
