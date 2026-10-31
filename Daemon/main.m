@@ -7,6 +7,7 @@
 #import <errno.h>
 #import "../Shared/LBPaths.h"
 #import "LBPosterBoardInstaller.h"
+#import "LBPosterMediaBuilder.h"
 
 static NSLock *LBRequestLock;
 
@@ -213,6 +214,73 @@ static NSDictionary *LBVerifyManagedTendiesRegistration(NSDictionary *request, N
     return result;
 }
 
+static NSDictionary *LBProcessMediaInstallRequest(NSDictionary *request, NSError **error) {
+    NSString *identifier = [request[@"identifier"] isKindOfClass:NSString.class] ? request[@"identifier"] : nil;
+    if (!LBValidUUID(identifier)) {
+        if (error) *error = [NSError errorWithDomain:@"com.iuyghi.LumenBoard.Daemon" code:130 userInfo:@{NSLocalizedDescriptionKey:@"Invalid managed media identifier."}];
+        return nil;
+    }
+    NSString *itemRoot = [LBLibraryPath() stringByAppendingPathComponent:identifier];
+    NSString *manifestPath = [itemRoot stringByAppendingPathComponent:@"manifest.plist"];
+    if (!LBRegularFile(manifestPath, 1024 * 1024)) {
+        if (error) *error = [NSError errorWithDomain:@"com.iuyghi.LumenBoard.Daemon" code:131 userInfo:@{NSLocalizedDescriptionKey:@"Managed media manifest is missing or unsafe."}];
+        return nil;
+    }
+    NSMutableDictionary *manifest = [[NSDictionary dictionaryWithContentsOfFile:manifestPath] mutableCopy];
+    NSString *kind = [manifest[@"type"] isKindOfClass:NSString.class] ? manifest[@"type"] : nil;
+    NSString *filename = [manifest[@"sourceFilename"] isKindOfClass:NSString.class] ? manifest[@"sourceFilename"] : nil;
+    if (![manifest[@"identifier"] isEqualToString:identifier] ||
+        (![kind isEqualToString:@"image"] && ![kind isEqualToString:@"video"]) ||
+        !filename.length || [filename containsString:@"/"] || [filename containsString:@"\\"]) {
+        if (error) *error = [NSError errorWithDomain:@"com.iuyghi.LumenBoard.Daemon" code:132 userInfo:@{NSLocalizedDescriptionKey:@"Managed manifest does not describe a supported image or video source."}];
+        return nil;
+    }
+    NSString *sourcePath = [itemRoot stringByAppendingPathComponent:filename];
+    if (!LBRegularFile(sourcePath, 300ULL * 1024ULL * 1024ULL)) {
+        if (error) *error = [NSError errorWithDomain:@"com.iuyghi.LumenBoard.Daemon" code:133 userInfo:@{NSLocalizedDescriptionKey:@"Managed media source is missing, unsafe, or exceeds 300 MiB."}];
+        return nil;
+    }
+    NSString *expectedHash = [manifest[@"sha256"] isKindOfClass:NSString.class] ? [manifest[@"sha256"] lowercaseString] : nil;
+    NSString *actualHash = LBSHA256(sourcePath);
+    if (!expectedHash.length || !actualHash.length || ![expectedHash isEqualToString:actualHash]) {
+        if (error) *error = [NSError errorWithDomain:@"com.iuyghi.LumenBoard.Daemon" code:134 userInfo:@{NSLocalizedDescriptionKey:@"The stored media SHA-256 does not match its import manifest."}];
+        return nil;
+    }
+    if ([manifest[@"installationState"] isEqualToString:@"installed"] &&
+        [manifest[@"installationReport"] isKindOfClass:NSDictionary.class]) return manifest[@"installationReport"];
+
+    NSString *container = [LBPosterBoardInstaller findPosterBoardContainer:error];
+    if (!container) return nil;
+    NSString *descriptorRoot = [[container stringByAppendingPathComponent:@"Library/Application Support/PRBPosterExtensionDataStore/59/Extensions"]
+        stringByAppendingPathComponent:[@"com.apple.WallpaperKit.CollectionsPoster" stringByAppendingPathComponent:@"descriptors"]];
+    NSString *generatedRoot = [itemRoot stringByAppendingPathComponent:@"Generated"];
+    [[NSFileManager defaultManager] removeItemAtPath:generatedRoot error:nil];
+    NSString *title = [manifest[@"originalName"] isKindOfClass:NSString.class] ? [manifest[@"originalName"] stringByDeletingPathExtension] : @"LumenBoard";
+    NSString *descriptor = [LBPosterMediaBuilder buildDescriptorForSource:sourcePath kind:kind title:title
+        homeBlur:[manifest[@"homeBlur"] boolValue] outputRoot:generatedRoot error:error];
+    if (!descriptor) return nil;
+    NSDictionary *installed = [LBPosterBoardInstaller installExtractedDescriptorTreeAtPath:generatedRoot descriptorRoot:descriptorRoot error:error];
+    if (!installed) return nil;
+    NSMutableDictionary *report = [installed mutableCopy];
+    report[@"sourceKind"] = kind;
+    report[@"sourceSHA256"] = actualHash;
+    report[@"descriptorRegistrationState"] = @"published";
+    report[@"posterBoardApplicationState"] = @"unverified";
+    manifest[@"status"] = @"registered-unverified";
+    manifest[@"installationState"] = @"installed";
+    manifest[@"installedDescriptorIdentifiers"] = report[@"installedDescriptorIdentifiers"] ?: @[];
+    manifest[@"installationReport"] = report;
+    manifest[@"registeredAt"] = [NSDate date];
+    NSData *manifestData = [NSPropertyListSerialization dataWithPropertyList:manifest format:NSPropertyListBinaryFormat_v1_0 options:0 error:error];
+    if (!manifestData || ![manifestData writeToFile:manifestPath options:NSDataWritingAtomic error:error]) return nil;
+    if (!LBEnsureMobileOwnership(manifestPath)) {
+        if (error) *error = [NSError errorWithDomain:@"com.iuyghi.LumenBoard.Daemon" code:135 userInfo:@{NSLocalizedDescriptionKey:@"Wallpaper was published, but mobile ownership of the updated manifest could not be confirmed."}];
+        return nil;
+    }
+    chmod(manifestPath.fileSystemRepresentation, 0600);
+    return report;
+}
+
 static void LBProcessRequests(void) {
     [LBRequestLock lock];
     @try {
@@ -254,6 +322,8 @@ static void LBProcessRequests(void) {
                 operationResult = LBProcessImportRequest(request, &operationError);
             } else if ([action isEqualToString:@"verify-tendies-registration"]) {
                 operationResult = LBVerifyManagedTendiesRegistration(request, &operationError);
+            } else if ([action isEqualToString:@"install-media"]) {
+                operationResult = LBProcessMediaInstallRequest(request, &operationError);
             } else {
                 operationError = [NSError errorWithDomain:@"com.iuyghi.LumenBoard.Daemon" code:110 userInfo:@{NSLocalizedDescriptionKey:@"Unsupported daemon action."}];
             }
