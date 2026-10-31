@@ -85,6 +85,8 @@ class NativeMediaPipelineContractTests(unittest.TestCase):
         self.assertIn('"presentationTouchEventsEnabled":@NO', source)
         self.assertIn("documentResizesToView:NO scalesToFitInPlayer:NO", source)
         self.assertIn("documentResizesToView:YES scalesToFitInPlayer:YES", source)
+        self.assertIn("outputWidth:&backgroundWidth outputHeight:&backgroundHeight", source)
+        self.assertIn("writeEmptyLayerAt:floating width:backgroundWidth height:backgroundHeight", source)
         self.assertNotIn("LBMediaWritePlist(index", source)
 
     def test_package_and_preferences_versions_are_synchronized(self):
