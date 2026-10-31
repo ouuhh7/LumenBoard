@@ -262,6 +262,7 @@ static NSDictionary *LBProcessMediaInstallRequest(NSDictionary *request, NSError
     NSDictionary *installed = [LBPosterBoardInstaller installExtractedDescriptorTreeAtPath:generatedRoot descriptorRoot:descriptorRoot error:error];
     if (!installed) return nil;
     NSMutableDictionary *report = [installed mutableCopy];
+    [report addEntriesFromDictionary:[LBPosterBoardInstaller requestPosterBoardRefreshForContainer:container]];
     report[@"sourceKind"] = kind;
     report[@"sourceSHA256"] = actualHash;
     report[@"descriptorRegistrationState"] = @"published";
