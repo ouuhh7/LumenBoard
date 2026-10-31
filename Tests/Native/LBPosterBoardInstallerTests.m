@@ -330,7 +330,7 @@ static pid_t LBTestWaitPIDFailureAfterReap(pid_t pid, int *status, int options) 
 - (void)testRefreshReportsNonzeroChildExit {
     NSString *script = [self writeExecutableScript:@"nonzero-killall" body:@"exit 23"];
     NSDictionary *result = [LBPosterBoardInstaller runRefreshCommandForTestingWithCandidates:@[script]
-        processName:@"PosterBoard" timeout:1.0];
+        processName:@"PosterBoard" timeout:1.0 waitFunction:NULL];
     XCTAssertEqualObjects(result[@"refreshSpawnResult"], @0);
     XCTAssertEqualObjects(result[@"refreshProcessExitStatus"], @23);
     XCTAssertEqualObjects(result[@"posterBoardRefreshRequested"], @NO);
