@@ -23,7 +23,7 @@ On the iPhone X running iOS 16.7.16 with the exact Dopamine/RootHide build:
 6. Confirm the descriptor appears in native PosterBoard Collections, opens in preview, is selectable, and actually renders on Lock Screen and Home Screen.
 7. Reboot/respring and verify both wallpaper persistence and daemon relaunch.
 8. Run dpkg configure/upgrade again to exercise the already-bootstrapped path; it must not fail or create duplicate service instances.
-9. Remove the package and confirm the daemon is stopped. Confirm no user library files or unrelated PosterBoard descriptors were deleted.
+9. Remove the package and confirm both `user/foreground` and legacy `system` service registrations are stopped. Confirm no user library files or unrelated PosterBoard descriptors were deleted.
 
 Capture dpkg output, launchctl print output, daemon log, the relevant manifest and screenshots. Redact device identifiers before sharing.
 

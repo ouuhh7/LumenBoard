@@ -8,7 +8,7 @@ Package version under validation: `0.1.0-9` (`iphoneos-arm64`). The package comp
 
 The Preferences pane stores photo/video selections as local source imports. `.tendies` archives are copied into the managed library, validated, submitted to the daemon, and—when accepted—published as descriptor records into the iOS 16 Collections store. The UI distinguishes descriptor publication from confirmed gallery visibility, selection, and wallpaper application.
 
-The package has passed native XCTest and rootless package validation in earlier CI runs. Version `0.1.0-9` adds regression tests for repeated configuration, strict status-37 handling, migration of any stale `system`-domain registration, and safe package removal from both service domains. CI success does not prove installation or PosterBoard rendering on the target iPhone. Device validation remains mandatory.
+The exact `0.1.0-9` source commit passed all three CI jobs: 68 portable Python tests, 39 native XCTest cases, maintainer-script lifecycle tests, and rootless package build/verification. This does not prove installation or PosterBoard rendering on the target iPhone; device validation remains mandatory.
 
 Not claimed: a complete photo/video-to-CAML conversion pipeline, safe native removal of published descriptors, or verified wallpaper rendering on iOS 16.7.16. Removing a source from LumenBoard's local library does not remove an already-published PosterBoard descriptor.
 
