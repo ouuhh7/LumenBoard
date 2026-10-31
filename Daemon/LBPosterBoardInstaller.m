@@ -714,7 +714,7 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
     }
 
     NSDictionary *refresh = preferencesWritten ?
-        LBRunPosterBoardRefresh(candidates, @"PosterBoard", 15.0, LBDefaultWaitPID) :
+        LBRunPosterBoardRefresh(LBKillallExecutableCandidates(), @"PosterBoard", 15.0, LBDefaultWaitPID) :
         @{
             @"refreshExecutable": @"",
             @"refreshCandidatePaths": @[],
