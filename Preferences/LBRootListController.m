@@ -397,9 +397,32 @@ static NSDictionary *LBQueueTendiesVerificationAndWait(NSString *identifier, NSE
                                         preserveItemDirectory = NO;
                                         stored = YES;
                                         finalStatus = existingStatus;
-                                        userMessage = [existingStatus isEqualToString:@"registering"] ?
-                                            @"This exact .tendies archive is already being registered. No second registration request was created." :
-                                            @"This exact .tendies archive already has descriptor records registered. PosterBoard visibility and wallpaper application have not been verified on this device; no duplicate registration was created.";
+                                        if ([existingStatus isEqualToString:@"registering"]) {
+                                            userMessage = @"This exact .tendies archive is already being registered. No second registration request was created.";
+                                        } else {
+                                            NSError *verificationError = nil;
+                                            NSDictionary *verification = LBQueueTendiesVerificationAndWait(existingEntry, &verificationError);
+                                            NSString *storeState = [verification[@"descriptorStoreState"] isKindOfClass:NSString.class] ?
+                                                verification[@"descriptorStoreState"] : @"unavailable";
+                                            NSUInteger expected = [verification[@"expectedDescriptorCount"] unsignedIntegerValue];
+                                            NSUInteger present = [verification[@"presentDescriptorCount"] unsignedIntegerValue];
+                                            NSUInteger missing = [verification[@"missingDescriptorCount"] unsignedIntegerValue];
+                                            NSUInteger invalid = [verification[@"invalidDescriptorCount"] unsignedIntegerValue];
+                                            if ([storeState isEqualToString:@"complete"]) {
+                                                userMessage = [NSString stringWithFormat:
+                                                    @"The exact archive was already registered. Read-only verification found all %lu previously published descriptor directories and their required plist/CAML structure in PosterBoard's Collections store. This verifies filesystem registration only—not native gallery visibility, selectability, or wallpaper application. No duplicate registration was created.",
+                                                    (unsigned long)expected];
+                                            } else if (verification) {
+                                                userMessage = [NSString stringWithFormat:
+                                                    @"The exact archive was previously registered, but its live descriptor-store check is %@: %lu of %lu records valid, %lu missing, %lu structurally invalid. No duplicate registration or automatic repair was attempted. PosterBoard gallery visibility and wallpaper application remain unverified.",
+                                                    storeState, (unsigned long)present, (unsigned long)expected,
+                                                    (unsigned long)missing, (unsigned long)invalid];
+                                            } else {
+                                                userMessage = [NSString stringWithFormat:
+                                                    @"The exact archive has a previous registration record, but live verification could not be completed: %@. No duplicate registration was created. PosterBoard gallery visibility and wallpaper application remain unverified.",
+                                                    verificationError.localizedDescription ?: @"the daemon returned no verification result."];
+                                            }
+                                        }
                                         break;
                                     }
                                 }
