@@ -40,6 +40,20 @@ class NativeMediaPipelineContractTests(unittest.TestCase):
         source = (ROOT / "Daemon/main.m").read_text()
         self.assertIn("requestPosterBoardRefreshForContainer:container", source)
 
+
+    def test_posterboard_refresh_resolves_rootless_killall_before_stock_paths(self):
+        source = (ROOT / "Daemon/LBPosterBoardInstaller.m").read_text()
+        self.assertIn("static NSString *LBResolveKillallExecutable(void)", source)
+        rootless = source.index('@"/var/jb/usr/bin/killall"')
+        rootless_bin = source.index('@"/var/jb/bin/killall"')
+        stock_usr = source.index('@"/usr/bin/killall"')
+        stock_bin = source.index('@"/bin/killall"')
+        self.assertLess(rootless, rootless_bin)
+        self.assertLess(rootless_bin, stock_usr)
+        self.assertLess(stock_usr, stock_bin)
+        self.assertIn("access(candidate.fileSystemRepresentation, X_OK) == 0", source)
+        self.assertEqual(source.count("LBResolveKillallExecutable()"), 3)
+
     def test_timed_out_media_generation_is_reconciled(self):
         source = (ROOT / "Preferences/LBRootListController.m").read_text()
         self.assertIn('@"generating"', source)
