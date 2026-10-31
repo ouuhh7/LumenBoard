@@ -274,12 +274,21 @@ static NSDictionary *LBProcessMediaInstallRequest(NSDictionary *request, NSError
     manifest[@"registeredAt"] = [NSDate date];
     [manifest removeObjectForKey:@"daemonRequestID"];
     NSData *manifestData = [NSPropertyListSerialization dataWithPropertyList:manifest format:NSPropertyListBinaryFormat_v1_0 options:0 error:error];
-    if (!manifestData || ![manifestData writeToFile:manifestPath options:NSDataWritingAtomic error:error]) return nil;
-    if (!LBEnsureMobileOwnership(manifestPath)) {
-        if (error) *error = [NSError errorWithDomain:@"com.iuyghi.LumenBoard.Daemon" code:135 userInfo:@{NSLocalizedDescriptionKey:@"Wallpaper was published, but mobile ownership of the updated manifest could not be confirmed."}];
-        return nil;
+    if (!manifestData || ![manifestData writeToFile:manifestPath options:NSDataWritingAtomic error:error]) {
+        // Descriptor publication is already committed. Preserve that success
+        // boundary and surface the manifest problem as a warning, not a false
+        // import failure or a destructive rollback.
+        report[@"manifestUpdateWarning"] = @"Wallpaper descriptors were published, but the managed manifest could not be updated.";
+        return report;
     }
-    chmod(manifestPath.fileSystemRepresentation, 0600);
+    if (!LBEnsureMobileOwnership(manifestPath)) {
+        report[@"manifestUpdateWarning"] = @"Wallpaper descriptors were published, but mobile ownership of the updated manifest could not be confirmed.";
+        return report;
+    }
+    if (chmod(manifestPath.fileSystemRepresentation, 0600) != 0) {
+        report[@"manifestUpdateWarning"] = [NSString stringWithFormat:@"Wallpaper descriptors were published, but manifest permissions could not be secured (errno %d).", errno];
+        return report;
+    }
     return report;
 }
 
