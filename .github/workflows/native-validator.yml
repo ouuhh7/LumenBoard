@@ -15,6 +15,26 @@ permissions:
   contents: read
 
 jobs:
+  portable-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Run portable tools and adversarial archive tests
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -v
+          python -m compileall -q tools tests
+          python tools/tendies_inspect.py --help >/dev/null
+          python tools/static_wallpaper_builder.py --help >/dev/null
+          python tools/descriptor_consistency.py --help >/dev/null
+          python tools/static_descriptor_generator.py --help >/dev/null
+
   native-tests:
     runs-on: macos-15
     timeout-minutes: 30
