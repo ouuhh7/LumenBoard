@@ -55,12 +55,12 @@ static BOOL LBWriteManagedManifest(NSMutableDictionary *manifest, NSString *item
     return YES;
 }
 
-static NSDictionary *LBQueueTendiesImportAndWait(NSString *identifier, NSString **requestIDOut, NSError **error) {
+static NSDictionary *LBQueueDaemonActionAndWait(NSString *identifier, NSString *action, NSString **requestIDOut, NSError **error) {
     if (!LBEnsureDaemonDirectories(error)) return nil;
     NSString *requestID = NSUUID.UUID.UUIDString.lowercaseString;
     NSDictionary *request = @{
         @"requestID": requestID,
-        @"action": @"import-tendies",
+        @"action": action,
         @"identifier": identifier,
         @"created": [NSDate date]
     };
@@ -108,6 +108,17 @@ static NSDictionary *LBQueueTendiesImportAndWait(NSString *identifier, NSString 
         NSLocalizedDescriptionKey:@"PosterBoard registration is still queued. The source and extracted descriptors were preserved; use Refresh local library to check again."
     }];
     return @{@"requestID":requestID, @"success":@NO, @"timedOut":@YES};
+}
+
+
+static NSDictionary *LBQueueTendiesImportAndWait(NSString *identifier, NSString **requestIDOut, NSError **error) {
+    return LBQueueDaemonActionAndWait(identifier, @"import-tendies", requestIDOut, error);
+}
+
+static NSDictionary *LBQueueTendiesVerificationAndWait(NSString *identifier, NSError **error) {
+    NSDictionary *completion = LBQueueDaemonActionAndWait(identifier, @"verify-tendies-registration", NULL, error);
+    if (![completion[@"success"] boolValue]) return nil;
+    return [completion[@"result"] isKindOfClass:NSDictionary.class] ? completion[@"result"] : nil;
 }
 
 @implementation LumenBoardRootListController
