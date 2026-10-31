@@ -6,6 +6,7 @@
 #import <unistd.h>
 #import <errno.h>
 #import <math.h>
+#import <stdlib.h>
 
 static NSError *LBMediaError(NSInteger code, NSString *message) {
     return [NSError errorWithDomain:@"com.iuyghi.LumenBoard.MediaBuilder" code:code
