@@ -121,7 +121,11 @@ static NSData *LBTProcessMember(const uint8_t *input, NSUInteger inputLength, NS
         }
         if(diskStart!=0||cs==0xffffffff||us==0xffffffff||local==0xffffffff){if(error)*error=LBTMakeError(8,@"ZIP64 entry unsupported");return @{@"status":@"unsupported",@"errors":@[@"ZIP64 entry"]};}
         NSString *name=[[NSString alloc]initWithBytes:h+46 length:nl encoding:NSUTF8StringEncoding]; if(!name){if(error)*error=LBTMakeError(9,@"Invalid UTF-8 entry name");return @{@"status":@"invalid",@"errors":@[@"Invalid filename encoding"]};}
-        BOOL dir=[name hasSuffix:@"/"]; NSString *key=nil; if(!LBTNormalizePath(name,dir,&key,error))return @{@"status":@"invalid",@"errors":@[@"Unsafe archive path"]};
+        uint32_t mode=(ext>>16)&0xffff,kind=mode&0170000;
+        // ZIP directory entries are not required to carry a trailing slash:
+        // Unix mode bits and the DOS directory attribute are authoritative too.
+        BOOL dir=[name hasSuffix:@"/"] || kind==0040000 || (ext&0x10)!=0;
+        NSString *key=nil; if(!LBTNormalizePath(name,dir,&key,error))return @{@"status":@"invalid",@"errors":@[@"Unsafe archive path"]};
         if([keys containsObject:key]){if(error)*error=LBTMakeError(13,@"Duplicate, Unicode or case-folded path collision");return @{@"status":@"invalid",@"errors":@[@"Duplicate path"]};}
         // Explicit directory entries may be ancestors of files. Only a file used
         // as an ancestor, or a file replacing a path that already has descendants,
@@ -144,7 +148,7 @@ static NSData *LBTProcessMember(const uint8_t *input, NSUInteger inputLength, NS
                 return @{@"status":@"invalid",@"errors":@[@"Path collision"]};
             }
         }
-        [keys addObject:key]; pathKinds[key]=@(dir); uint32_t mode=(ext>>16)&0xffff,kind=mode&0170000;
+        [keys addObject:key]; pathKinds[key]=@(dir);
         if(kind==0120000||(kind&&kind!=0100000&&kind!=0040000)){if(error)*error=LBTMakeError(15,@"Symlink or special entry rejected");return @{@"status":@"invalid",@"errors":@[@"Symlink or special entry"]};}
         if(flags&(1|0x40|0x2000)){if(error)*error=LBTMakeError(16,@"Encrypted entries unsupported");return @{@"status":@"unsupported",@"errors":@[@"Encrypted archive"]};}
         if(method!=0&&method!=8){if(error)*error=LBTMakeError(17,@"Unsupported compression method");return @{@"status":@"unsupported",@"errors":@[@"Unsupported compression"]};}
