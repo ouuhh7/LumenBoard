@@ -84,6 +84,7 @@ fi
 grep -Fq 'CFBundleIdentifier = com.iuyghi.lumenboard.preferences;' "$info_plist"
 grep -Fq 'CFBundleExecutable = LumenBoardPrefs;' "$info_plist"
 grep -Fq 'CFBundlePackageType = BNDL;' "$info_plist"
+grep -Fq 'CFBundleVersion = "15";' "$info_plist"
 
 daemon="$stage/var/jb/usr/libexec/lumenboardd"
 if [[ ! -x "$daemon" ]] || ! file "$daemon" | grep -Eiq 'Mach-O.*arm64'; then
@@ -117,7 +118,14 @@ if [[ -e "$final_deb" ]]; then
 fi
 cp -p "$deb" "$final_deb"
 echo "=== SHA-256 ==="
-sha256sum "$final_deb"
+if command -v shasum >/dev/null 2>&1; then
+  shasum -a 256 "$final_deb"
+elif command -v sha256sum >/dev/null 2>&1; then
+  sha256sum "$final_deb"
+else
+  echo "ERROR: neither shasum nor sha256sum is available" >&2
+  exit 17
+fi
 echo "=== Verified artifact ==="
 printf '%s\n' "$final_deb"
 echo "=== Verification result ==="
