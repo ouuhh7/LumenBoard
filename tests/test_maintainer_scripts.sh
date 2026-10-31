@@ -35,7 +35,8 @@ chmod 0755 "$TMP/launchctl"
 
 run_postinst() {
   : > "$TMP/calls"
-  FAKE_LAUNCHCTL_LOG="$TMP/calls" LUMENBOARD_LAUNCHCTL="$TMP/launchctl" "$@" "$CONTROL/postinst"
+  rm -f "$TMP/systemgone" "$TMP/usergone"
+  FAKE_LAUNCHCTL_LOG="$TMP/calls" LUMENBOARD_LAUNCHCTL="$TMP/launchctl" FAKE_SYSTEM_GONE="$TMP/systemgone" FAKE_USER_GONE="$TMP/usergone" "$@" "$CONTROL/postinst"
 }
 
 run_postinst env

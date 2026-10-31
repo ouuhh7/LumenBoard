@@ -2,10 +2,22 @@
 set -eu
 
 SERVICE="user/foreground/com.iuyghi.lumenboardd"
+LEGACY_SERVICE="system/com.iuyghi.lumenboardd"
 PLIST="/var/jb/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist"
 LAUNCHCTL="${LUMENBOARD_LAUNCHCTL:-/bin/launchctl}"
 
-# Accept an already-loaded service only for launchctl status 37 and its diagnostic.
+# Older builds attempted to register this label in the system domain.
+# Remove that stale registration before using Dopamine user/foreground.
+if "$LAUNCHCTL" print "$LEGACY_SERVICE" >/dev/null 2>&1; then
+    if ! "$LAUNCHCTL" bootout "$LEGACY_SERVICE" >/dev/null 2>&1; then
+        if "$LAUNCHCTL" print "$LEGACY_SERVICE" >/dev/null 2>&1; then
+            echo "LumenBoard: legacy system-domain service is still registered; refusing to start a second daemon." >&2
+            exit 1
+        fi
+    fi
+fi
+
+# Accept an already-loaded foreground service only for status 37 and its diagnostic.
 bootstrap_status=0
 bootstrap_output=$("$LAUNCHCTL" bootstrap user/foreground "$PLIST" 2>&1) || bootstrap_status=$?
 if [ "$bootstrap_status" -ne 0 ]; then

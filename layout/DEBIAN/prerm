@@ -2,17 +2,22 @@
 set -eu
 
 SERVICE="user/foreground/com.iuyghi.lumenboardd"
+LEGACY_SERVICE="system/com.iuyghi.lumenboardd"
 LAUNCHCTL="${LUMENBOARD_LAUNCHCTL:-/bin/launchctl}"
 
-# Stop the service before dpkg removes/replaces its executable.
-# If bootout races with an already-stopped service, the second print decides.
-if "$LAUNCHCTL" print "$SERVICE" >/dev/null 2>&1; then
-    if ! "$LAUNCHCTL" bootout "$SERVICE" >/dev/null 2>&1; then
-        if "$LAUNCHCTL" print "$SERVICE" >/dev/null 2>&1; then
-            echo "LumenBoard: could not stop $SERVICE; refusing package removal/upgrade while it remains registered." >&2
-            exit 1
+stop_service() {
+    service="$1"
+    if "$LAUNCHCTL" print "$service" >/dev/null 2>&1; then
+        if ! "$LAUNCHCTL" bootout "$service" >/dev/null 2>&1; then
+            if "$LAUNCHCTL" print "$service" >/dev/null 2>&1; then
+                echo "LumenBoard: could not stop $service; refusing package removal/upgrade while it remains registered." >&2
+                return 1
+            fi
         fi
     fi
-fi
+}
 
+# Stop both the current service and any registration left by older packages.
+stop_service "$SERVICE"
+stop_service "$LEGACY_SERVICE"
 exit 0

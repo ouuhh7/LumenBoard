@@ -81,13 +81,16 @@ jobs:
           sh tests/test_maintainer_scripts.sh
           plutil -lint layout/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist
           grep -q "/var/jb/usr/libexec/lumenboardd" layout/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist
-          ! grep -Eq '/usr/bin/grep|/bin/sleep|system/com\.iuyghi\.lumenboardd|bootstrap system|kickstart -k system' layout/DEBIAN/postinst layout/DEBIAN/prerm
+          ! grep -Eq '/usr/bin/grep|/bin/sleep|bootstrap system|kickstart -k system' layout/DEBIAN/postinst layout/DEBIAN/prerm
           grep -q 'user/foreground/com.iuyghi.lumenboardd' layout/DEBIAN/postinst
+          grep -q 'system/com.iuyghi.lumenboardd' layout/DEBIAN/postinst
+          grep -q 'bootout "$LEGACY_SERVICE"' layout/DEBIAN/postinst
           grep -q 'bootstrap user/foreground' layout/DEBIAN/postinst
           grep -q 'service already bootstrapped' layout/DEBIAN/postinst
           grep -q 'bootstrap_status.*37' layout/DEBIAN/postinst
           grep -q 'LUMENBOARD_LAUNCHCTL' layout/DEBIAN/postinst
           grep -q 'user/foreground/com.iuyghi.lumenboardd' layout/DEBIAN/prerm
+          grep -q 'system/com.iuyghi.lumenboardd' layout/DEBIAN/prerm
       - name: Build rootless package
         run: |
           export THEOS="$HOME/theos"
