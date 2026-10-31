@@ -53,3 +53,8 @@ A successful compile or DEB creation is a packaging check only. It is not eviden
 The native XCTest suite now exercises the shared refresh process runner with temporary executable fixtures: ordered fallback selection, all candidates missing (ENOENT), spawn failure from a missing script interpreter, non-zero child exit, signal termination, a timeout that sends SIGKILL and reaps the child, a simulated ECHILD wait failure after child reaping, and the case where refresh flags are written but no executable exists. The portable contract test additionally guards the 15-second production timeout, both refresh call sites, waitpid(WNOHANG), EINTR, exit/signal distinctions, and the version contract across Debian control, Preferences CFBundleVersion, the build helper and CI workflow.
 
 These tests validate process-management behavior on macOS, not the presence of any particular killall binary or the effect of killing PosterBoard on iOS 16.7.16. The exact process restart behavior remains a device-only check.
+
+
+## Media descriptor index contract
+
+`Daemon/LBPosterMediaBuilder.m` writes `index.xml` using `NSPropertyListXMLFormat_v1_0`, includes the public-reference index keys, and sizes the empty Floating layer to the same canvas as the Background. Portable contract tests guard this format and both size call sites. This is not a substitute for loading the generated wallpaper in PosterBoard on iOS 16.7.16.

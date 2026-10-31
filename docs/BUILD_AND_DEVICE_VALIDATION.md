@@ -10,7 +10,8 @@
 - Architecture: `iphoneos-arm64`
 - Working branch: `fix/rootless-deb-installation`
 - Main branch remains separate and unchanged.
-- The active workflow validates portable tests, macOS XCTest, rootless package construction and archive contents. A successful build does not establish actual iPhone installation or PosterBoard rendering.
+- The active workflow validates portable tests, macOS XCTest, rootless package construction and archive contents.
+- `index.xml` is emitted as an XML property list; the empty Floating layer is sized to the generated media canvas. The reference basis and remaining device-only compatibility gate are documented in the README. A successful build does not establish actual iPhone installation or PosterBoard rendering.
 
 
 ## Historical verified candidate 0.1.0-9 (superseded)
