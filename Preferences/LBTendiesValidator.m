@@ -105,7 +105,7 @@ static NSData *LBTProcessMember(const uint8_t *input, NSUInteger inputLength, NS
     if(disk||cdDisk||onDisk!=count){if(error)*error=LBTMakeError(3,@"Multi-disk ZIP unsupported");return @{@"status":@"unsupported",@"errors":@[@"Multi-disk ZIP"]};}
     if(count==0xffff||cdSize==0xffffffff||cdOffset==0xffffffff){if(error)*error=LBTMakeError(4,@"ZIP64 unsupported");return @{@"status":@"unsupported",@"errors":@[@"ZIP64"]};}
     if(!count||count>LBTMaxEntries||!LBTRange(eocd,22+comment,n)||eocd+22+(NSUInteger)comment!=n||(uint64_t)cdOffset+cdSize!=eocd){if(error)*error=LBTMakeError(5,@"Invalid central directory");return @{@"status":@"invalid",@"errors":@[@"Invalid central directory"]};}
-    NSMutableArray<LBTEntry *> *entries=[NSMutableArray array]; NSMutableSet *keys=[NSMutableSet set]; uint64_t total=0; NSUInteger cursor=cdOffset; BOOL descriptor=NO,container=NO;
+    NSMutableArray<LBTEntry *> *entries=[NSMutableArray array]; NSMutableSet *keys=[NSMutableSet set]; NSMutableDictionary<NSString *, NSNumber *> *pathKinds=[NSMutableDictionary dictionary]; uint64_t total=0; NSUInteger cursor=cdOffset; BOOL descriptor=NO,container=NO;
     for(NSUInteger i=0;i<count;i++){
         if(!LBTRange(cursor,46,n)||LBTU32(b+cursor)!=0x02014b50){if(error)*error=LBTMakeError(6,@"Malformed central directory record");return @{@"status":@"invalid",@"errors":@[@"Malformed central directory"]};}
         const uint8_t *h=b+cursor; uint16_t flags=LBTU16(h+8),method=LBTU16(h+10),nl=LBTU16(h+28),xl=LBTU16(h+30),cl=LBTU16(h+32),diskStart=LBTU16(h+34);
@@ -123,8 +123,28 @@ static NSData *LBTProcessMember(const uint8_t *input, NSUInteger inputLength, NS
         NSString *name=[[NSString alloc]initWithBytes:h+46 length:nl encoding:NSUTF8StringEncoding]; if(!name){if(error)*error=LBTMakeError(9,@"Invalid UTF-8 entry name");return @{@"status":@"invalid",@"errors":@[@"Invalid filename encoding"]};}
         BOOL dir=[name hasSuffix:@"/"]; NSString *key=nil; if(!LBTNormalizePath(name,dir,&key,error))return @{@"status":@"invalid",@"errors":@[@"Unsafe archive path"]};
         if([keys containsObject:key]){if(error)*error=LBTMakeError(13,@"Duplicate, Unicode or case-folded path collision");return @{@"status":@"invalid",@"errors":@[@"Duplicate path"]};}
-        for(NSString *prior in keys) if(([prior hasPrefix:[key stringByAppendingString:@"/"]]&&!dir)||([key hasPrefix:[prior stringByAppendingString:@"/"]] )){if(error)*error=LBTMakeError(14,@"File/directory path collision");return @{@"status":@"invalid",@"errors":@[@"Path collision"]};}
-        [keys addObject:key]; uint32_t mode=(ext>>16)&0xffff,kind=mode&0170000;
+        // Explicit directory entries may be ancestors of files. Only a file used
+        // as an ancestor, or a file replacing a path that already has descendants,
+        // is a genuine file/directory collision.
+        NSArray<NSString *> *components=[key componentsSeparatedByString:@"/"];
+        NSMutableString *ancestor=[NSMutableString string];
+        for(NSUInteger componentIndex=0;componentIndex+1<components.count;componentIndex++){
+            if(ancestor.length)[ancestor appendString:@"/"];
+            [ancestor appendString:components[componentIndex]];
+            NSNumber *ancestorIsDirectory=pathKinds[ancestor];
+            if(ancestorIsDirectory && !ancestorIsDirectory.boolValue){
+                if(error)*error=LBTMakeError(14,@"File/directory path collision");
+                return @{@"status":@"invalid",@"errors":@[@"Path collision"]};
+            }
+        }
+        if(!dir){
+            NSString *descendantPrefix=[key stringByAppendingString:@"/"];
+            for(NSString *prior in keys) if([prior hasPrefix:descendantPrefix]){
+                if(error)*error=LBTMakeError(14,@"File/directory path collision");
+                return @{@"status":@"invalid",@"errors":@[@"Path collision"]};
+            }
+        }
+        [keys addObject:key]; pathKinds[key]=@(dir); uint32_t mode=(ext>>16)&0xffff,kind=mode&0170000;
         if(kind==0120000||(kind&&kind!=0100000&&kind!=0040000)){if(error)*error=LBTMakeError(15,@"Symlink or special entry rejected");return @{@"status":@"invalid",@"errors":@[@"Symlink or special entry"]};}
         if(flags&(1|0x40|0x2000)){if(error)*error=LBTMakeError(16,@"Encrypted entries unsupported");return @{@"status":@"unsupported",@"errors":@[@"Encrypted archive"]};}
         if(method!=0&&method!=8){if(error)*error=LBTMakeError(17,@"Unsupported compression method");return @{@"status":@"unsupported",@"errors":@[@"Unsupported compression"]};}
