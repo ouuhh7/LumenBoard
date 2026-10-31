@@ -229,6 +229,31 @@ class TendiesInspectorTests(unittest.TestCase):
                 tendies_inspect.inspect_archive(archive)
 
 
+    def test_ignores_macosx_mirror_with_malformed_posterkit_metadata_plist(self):
+        archive = make_descriptor_archive(self.root / "macosx-metadata.tendies")
+        sidecar = "__MACOSX/descriptors/AABBCCDD-0000-4000-8000-000000000001/_com.apple.posterkit.provider.identifierURL.suggestion-Metadata.plist"
+        with zipfile.ZipFile(archive, "a", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(sidecar, b"not a property list")
+        report = tendies_inspect.inspect_archive(archive)
+        self.assertTrue(report["valid_zip"])
+        self.assertEqual(report["ignored_metadata_entries"], 1)
+        self.assertEqual(report["plist_entries"], 1)
+        self.assertNotIn(sidecar, report["parseable_plists"])
+
+    def test_ignores_appledouble_and_finder_files_during_extraction(self):
+        archive = make_descriptor_archive(self.root / "finder-metadata.tendies")
+        with zipfile.ZipFile(archive, "a", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("descriptors/AABBCCDD-0000-4000-8000-000000000001/._Wallpaper.plist", b"not a plist")
+            zf.writestr("descriptors/AABBCCDD-0000-4000-8000-000000000001/.DS_Store", b"finder state")
+        destination = self.root / "finder-out"
+        report = tendies_inspect.extract_verified(archive, destination)
+        descriptor = destination / "descriptors/AABBCCDD-0000-4000-8000-000000000001"
+        self.assertEqual(report["ignored_metadata_entries"], 2)
+        self.assertTrue((descriptor / "com.apple.posterkit.provider.descriptor.identifier").is_file())
+        self.assertFalse((descriptor / "._Wallpaper.plist").exists())
+        self.assertFalse((descriptor / ".DS_Store").exists())
+
+
 class ProjectPackagingContractTests(unittest.TestCase):
     PROJECT = Path(__file__).resolve().parents[1]
 
