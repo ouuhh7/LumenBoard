@@ -234,11 +234,15 @@ class TendiesInspectorTests(unittest.TestCase):
         sidecar = "__MACOSX/descriptors/AABBCCDD-0000-4000-8000-000000000001/_com.apple.posterkit.provider.identifierURL.suggestion-Metadata.plist"
         with zipfile.ZipFile(archive, "a", compression=zipfile.ZIP_DEFLATED) as zf:
             zf.writestr(sidecar, b"not a property list")
+        second_sidecar = "MACOSX/descriptors/AABBCCDD-0000-4000-8000-000000000001/_com.apple.posterkit.provider.identifierURL.suggestion-Metadata.plist"
+        with zipfile.ZipFile(archive, "a", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(second_sidecar, b"also not a property list")
         report = tendies_inspect.inspect_archive(archive)
         self.assertTrue(report["valid_zip"])
-        self.assertEqual(report["ignored_metadata_entries"], 1)
+        self.assertEqual(report["ignored_metadata_entries"], 2)
         self.assertEqual(report["plist_entries"], 1)
         self.assertNotIn(sidecar, report["parseable_plists"])
+        self.assertNotIn(second_sidecar, report["parseable_plists"])
 
     def test_ignores_appledouble_and_finder_files_during_extraction(self):
         archive = make_descriptor_archive(self.root / "finder-metadata.tendies")
@@ -292,6 +296,18 @@ class ProjectPackagingContractTests(unittest.TestCase):
         self.assertIn("bootstrap user/foreground", postinst)
         self.assertIn("system/com.iuyghi.lumenboardd", postinst)
         self.assertIn("system/com.iuyghi.lumenboardd", prerm)
+
+
+    def test_native_validator_filters_macos_finder_metadata_before_plist_parsing_and_extraction(self):
+        source = (self.PROJECT / "Preferences" / "LBTendiesValidator.m").read_text()
+        self.assertIn("static BOOL LBTIsMetadataPath(NSString *path)", source)
+        self.assertIn('isEqualToString:@"__macosx"', source)
+        self.assertIn('isEqualToString:@"macosx"', source)
+        self.assertIn('hasPrefix:@"._"', source)
+        self.assertIn("e.ignoredMetadata=ignoredMetadata", source)
+        self.assertIn("!e.ignoredMetadata &&", source)
+        self.assertIn("if(e.ignoredMetadata)continue;", source)
+        self.assertIn("ignoredMetadataEntries", source)
 
 if __name__ == "__main__":
     unittest.main()
