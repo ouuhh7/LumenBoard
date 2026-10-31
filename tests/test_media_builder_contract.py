@@ -40,6 +40,12 @@ class NativeMediaPipelineContractTests(unittest.TestCase):
         source = (ROOT / "Daemon/main.m").read_text()
         self.assertIn("requestPosterBoardRefreshForContainer:container", source)
 
+    def test_timed_out_media_generation_is_reconciled(self):
+        source = (ROOT / "Preferences/LBRootListController.m").read_text()
+        self.assertIn('@"generating"', source)
+        self.assertIn('@"install-media"', source)
+        self.assertIn('mediaInstall ? @"installed" : @"descriptors-published"', source)
+
 
 if __name__ == "__main__":
     unittest.main()
