@@ -12,6 +12,8 @@
 #import <pwd.h>
 #import <stdio.h>
 #import <string.h>
+#import <signal.h>
+#import <time.h>
 
 extern char **environ;
 
@@ -19,17 +21,130 @@ static NSString * const LBIssueDomain = @"com.iuyghi.LumenBoard.PosterBoardInsta
 static NSString * const LBCollectionsExtension = @"com.apple.WallpaperKit.CollectionsPoster";
 static const NSInteger LBExpectedStructureVersion = 59;
 
-static NSString *LBResolveKillallExecutable(void) {
-    NSArray<NSString *> *candidates = @[
+static NSArray<NSString *> *LBKillallExecutableCandidates(void) {
+    return @[
         @"/var/jb/usr/bin/killall",
         @"/var/jb/bin/killall",
         @"/usr/bin/killall",
         @"/bin/killall"
     ];
-    for (NSString *candidate in candidates) {
-        if (access(candidate.fileSystemRepresentation, X_OK) == 0) return candidate;
+}
+
+static NSDictionary *LBRunPosterBoardRefresh(NSArray<NSString *> *candidates,
+                                               NSString *processName,
+                                               NSTimeInterval timeout) {
+    NSMutableArray<NSString *> *attempted = [NSMutableArray array];
+    NSString *executable = nil;
+    for (id value in candidates) {
+        if (![value isKindOfClass:NSString.class] || ![(NSString *)value length]) continue;
+        NSString *candidate = value;
+        [attempted addObject:candidate];
+        struct stat candidateStat;
+        // stat follows a legitimate symlink but rejects directories and other
+        // non-executable objects. access is preliminary; posix_spawn is authoritative.
+        if (stat(candidate.fileSystemRepresentation, &candidateStat) == 0 &&
+            S_ISREG(candidateStat.st_mode) &&
+            access(candidate.fileSystemRepresentation, X_OK) == 0) {
+            executable = candidate;
+            break;
+        }
     }
-    return nil;
+
+    int spawnResult = ENOENT;
+    int waitError = 0;
+    int exitStatus = -1;
+    int terminationSignal = 0;
+    BOOL timedOut = NO;
+    BOOL requested = NO;
+    pid_t pid = 0;
+    if (executable) {
+        char *arguments[] = {
+            (char *)executable.fileSystemRepresentation,
+            "-9",
+            (char *)processName.UTF8String,
+            NULL
+        };
+        spawnResult = posix_spawn(&pid, arguments[0], NULL, NULL, arguments, environ);
+    }
+
+    if (spawnResult == 0) {
+        struct timespec started = {0}, now = {0};
+        if (clock_gettime(CLOCK_MONOTONIC, &started) != 0) {
+            waitError = errno ?: EIO;
+        } else {
+            const NSTimeInterval effectiveTimeout = timeout > 0.0 ? timeout : 15.0;
+            for (;;) {
+                int status = 0;
+                pid_t waited = waitpid(pid, &status, WNOHANG);
+                if (waited == pid) {
+                    if (WIFEXITED(status)) {
+                        exitStatus = WEXITSTATUS(status);
+                        requested = (exitStatus == 0);
+                    } else if (WIFSIGNALED(status)) {
+                        terminationSignal = WTERMSIG(status);
+                    }
+                    break;
+                }
+                if (waited < 0) {
+                    if (errno == EINTR) continue;
+                    waitError = errno ?: ECHILD;
+                    break;
+                }
+                if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+                    waitError = errno ?: EIO;
+                    break;
+                }
+                NSTimeInterval elapsed = (NSTimeInterval)(now.tv_sec - started.tv_sec) +
+                    (NSTimeInterval)(now.tv_nsec - started.tv_nsec) / 1000000000.0;
+                if (elapsed >= effectiveTimeout) {
+                    timedOut = YES;
+                    break;
+                }
+                struct timespec pause = {.tv_sec = 0, .tv_nsec = 50000000};
+                while (nanosleep(&pause, &pause) != 0 && errno == EINTR) {}
+            }
+        }
+
+        if (timedOut || waitError != 0) {
+            // Never leave a hung child or zombie behind. ESRCH means it exited
+            // between the last waitpid and kill; waitpid below still reaps it.
+            if (kill(pid, SIGKILL) != 0 && errno != ESRCH && waitError == 0) waitError = errno;
+            int status = 0;
+            pid_t waited;
+            do { waited = waitpid(pid, &status, 0); } while (waited < 0 && errno == EINTR);
+            if (waited == pid && WIFSIGNALED(status)) terminationSignal = WTERMSIG(status);
+            else if (waited < 0 && waitError == 0) waitError = errno ?: ECHILD;
+        }
+    }
+
+    return @{
+        @"refreshExecutable": executable ?: @"",
+        @"refreshCandidatePaths": attempted,
+        @"refreshSpawnResult": @(spawnResult),
+        @"refreshWaitErrno": @(waitError),
+        @"refreshProcessExitStatus": @(exitStatus),
+        @"refreshProcessTerminationSignal": @(terminationSignal),
+        @"refreshProcessTimedOut": @(timedOut),
+        @"refreshTimeoutSeconds": @(timeout > 0.0 ? timeout : 15.0),
+        @"posterBoardRefreshRequested": @(requested)
+    };
+}
+
+static NSString *LBRefreshFailureDescription(NSDictionary *result) {
+    int spawnResult = [result[@"refreshSpawnResult"] intValue];
+    int waitError = [result[@"refreshWaitErrno"] intValue];
+    int exitStatus = [result[@"refreshProcessExitStatus"] intValue];
+    int terminationSignal = [result[@"refreshProcessTerminationSignal"] intValue];
+    if (spawnResult != 0) {
+        NSString *executable = [result[@"refreshExecutable"] length] ? result[@"refreshExecutable"] : @"none";
+        NSArray *attempted = result[@"refreshCandidatePaths"] ?: @[];
+        return [NSString stringWithFormat:@"Could not start PosterBoard refresh command (executable %@; result %d: %s; checked %@).",
+            executable, spawnResult, strerror(spawnResult), [attempted componentsJoinedByString:@", "]];
+    }
+    if ([result[@"refreshProcessTimedOut"] boolValue]) return @"PosterBoard refresh command timed out and was terminated.";
+    if (waitError != 0) return [NSString stringWithFormat:@"Could not collect the PosterBoard restart command result (errno %d: %s).", waitError, strerror(waitError)];
+    if (terminationSignal != 0) return [NSString stringWithFormat:@"The PosterBoard restart command was terminated by signal %d.", terminationSignal];
+    return [NSString stringWithFormat:@"killall exited with status %d; PosterBoard may not have been running or could not be signalled.", exitStatus];
 }
 
 static NSError *LBInstallError(NSInteger code, NSString *message) {
@@ -407,6 +522,14 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
 
 @implementation LBPosterBoardInstaller
 
+// Private test seam: XCTest exercises real spawn/wait behavior using controlled
+// temporary executables. This method is intentionally absent from the public header.
++ (NSDictionary *)runRefreshCommandForTestingWithCandidates:(NSArray<NSString *> *)candidates
+                                                processName:(NSString *)processName
+                                                     timeout:(NSTimeInterval)timeout {
+    return LBRunPosterBoardRefresh(candidates, processName, timeout);
+}
+
 + (NSString *)findPosterBoardContainer:(NSError **)error {
     NSString *base = @"/var/mobile/Containers/Data/Application";
     if (!LBIsDirectory(base)) {
@@ -570,34 +693,19 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
         }
     }
 
-    int spawnResult = -1;
-    int waitError = 0;
-    int exitStatus = -1;
-    int terminationSignal = 0;
-    BOOL refreshRequested = NO;
-    pid_t pid = 0;
-    if (preferencesWritten) {
-        NSString *killallPath = LBResolveKillallExecutable();
-        if (killallPath) {
-            char *arguments[] = {(char *)killallPath.fileSystemRepresentation, "-9", "PosterBoard", NULL};
-            spawnResult = posix_spawn(&pid, arguments[0], NULL, NULL, arguments, environ);
-        } else {
-            spawnResult = ENOENT;
-        }
-        if (spawnResult == 0) {
-            int waitStatus = 0;
-            pid_t waited;
-            do { waited = waitpid(pid, &waitStatus, 0); } while (waited < 0 && errno == EINTR);
-            if (waited == pid && WIFEXITED(waitStatus)) {
-                exitStatus = WEXITSTATUS(waitStatus);
-                refreshRequested = (exitStatus == 0);
-            } else if (waited == pid && WIFSIGNALED(waitStatus)) {
-                terminationSignal = WTERMSIG(waitStatus);
-            } else {
-                waitError = errno ?: ECHILD;
-            }
-        }
-    }
+    NSDictionary *refresh = preferencesWritten ?
+        LBRunPosterBoardRefresh(LBKillallExecutableCandidates(), @"PosterBoard", 15.0) :
+        @{
+            @"refreshExecutable": @"",
+            @"refreshCandidatePaths": @[],
+            @"refreshSpawnResult": @(-1),
+            @"refreshWaitErrno": @0,
+            @"refreshProcessExitStatus": @(-1),
+            @"refreshProcessTerminationSignal": @0,
+            @"refreshProcessTimedOut": @NO,
+            @"refreshTimeoutSeconds": @15.0,
+            @"posterBoardRefreshRequested": @NO
+        };
 
     NSMutableDictionary *final = [result mutableCopy];
     final[@"refreshPreferencesWritten"] = @(preferencesWritten);
@@ -605,24 +713,12 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
     final[@"refreshPreferencesOwnerUID"] = preferencesWritten ? @(preferenceStat.st_uid) : @(-1);
     final[@"refreshPreferencesOwnerGID"] = preferencesWritten ? @(preferenceStat.st_gid) : @(-1);
     final[@"refreshDaemonEffectiveUID"] = @(geteuid());
-    final[@"posterBoardRefreshRequested"] = @(refreshRequested);
-    final[@"refreshSpawnResult"] = @(spawnResult);
-    final[@"refreshWaitErrno"] = @(waitError);
-    final[@"refreshProcessExitStatus"] = @(exitStatus);
-    final[@"refreshProcessTerminationSignal"] = @(terminationSignal);
-    if (!preferencesWritten || !refreshRequested) {
-        NSString *detail = nil;
-        if (!preferencesWritten) {
-            detail = [NSString stringWithFormat:@"PosterBoard refresh preferences could not be written/owned (errno %d: %s).", preferencesErrno, strerror(preferencesErrno)];
-        } else if (spawnResult != 0) {
-            detail = [NSString stringWithFormat:@"Could not start PosterBoard refresh command (executable %@; result %d: %s).", LBResolveKillallExecutable() ?: @"not found", spawnResult, strerror(spawnResult)];
-        } else if (waitError != 0) {
-            detail = [NSString stringWithFormat:@"Could not collect the PosterBoard restart command result (errno %d: %s).", waitError, strerror(waitError)];
-        } else if (terminationSignal != 0) {
-            detail = [NSString stringWithFormat:@"The PosterBoard restart command was terminated by signal %d.", terminationSignal];
-        } else {
-            detail = [NSString stringWithFormat:@"killall exited with status %d; PosterBoard may not have been running or could not be signalled.", exitStatus];
-        }
+    [final addEntriesFromDictionary:refresh];
+    final[@"refreshDaemonEffectiveUID"] = @(geteuid());
+    if (!preferencesWritten || ![refresh[@"posterBoardRefreshRequested"] boolValue]) {
+        NSString *detail = !preferencesWritten ?
+            [NSString stringWithFormat:@"PosterBoard refresh preferences could not be written/owned (errno %d: %s).", preferencesErrno, strerror(preferencesErrno)] :
+            LBRefreshFailureDescription(refresh);
         final[@"refreshWarning"] = [NSString stringWithFormat:@"%@ Descriptor files remain published; the refresh flags are %@. A device restart or manual PosterBoard restart may be required.", detail, preferencesWritten ? @"written" : @"not confirmed"];
     }
     return final;
@@ -740,40 +836,28 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
     if (written && chmod(preferencesPath.fileSystemRepresentation, 0644) != 0) {
         written = NO; savedErrno = errno;
     }
-    int spawnResult = -1, exitStatus = -1, waitError = 0;
-    BOOL requested = NO;
-    pid_t pid = 0;
-    if (written) {
-        NSString *killallPath = LBResolveKillallExecutable();
-        if (killallPath) {
-            char *arguments[] = {(char *)killallPath.fileSystemRepresentation, "-9", "PosterBoard", NULL};
-            spawnResult = posix_spawn(&pid, arguments[0], NULL, NULL, arguments, environ);
-        } else {
-            spawnResult = ENOENT;
-        }
-        if (spawnResult == 0) {
-            int status = 0; pid_t waited;
-            do { waited = waitpid(pid, &status, 0); } while (waited < 0 && errno == EINTR);
-            if (waited == pid && WIFEXITED(status)) {
-                exitStatus = WEXITSTATUS(status);
-                requested = exitStatus == 0;
-            } else if (waited < 0) waitError = errno ?: ECHILD;
-        }
-    }
+    NSDictionary *refresh = written ?
+        LBRunPosterBoardRefresh(LBKillallExecutableCandidates(), @"PosterBoard", 15.0) :
+        @{
+            @"refreshExecutable": @"",
+            @"refreshCandidatePaths": @[],
+            @"refreshSpawnResult": @(-1),
+            @"refreshWaitErrno": @0,
+            @"refreshProcessExitStatus": @(-1),
+            @"refreshProcessTerminationSignal": @0,
+            @"refreshProcessTimedOut": @NO,
+            @"refreshTimeoutSeconds": @15.0,
+            @"posterBoardRefreshRequested": @NO
+        };
     NSMutableDictionary *result = [@{
         @"refreshPreferencesWritten":@(written),
-        @"refreshPreferencesErrno":@(savedErrno),
-        @"posterBoardRefreshRequested":@(requested),
-        @"refreshSpawnResult":@(spawnResult),
-        @"refreshWaitErrno":@(waitError),
-        @"refreshProcessExitStatus":@(exitStatus)
+        @"refreshPreferencesErrno":@(savedErrno)
     } mutableCopy];
-    if (!written || !requested) {
+    [result addEntriesFromDictionary:refresh];
+    if (!written || ![refresh[@"posterBoardRefreshRequested"] boolValue]) {
         NSString *detail = !written ?
             [NSString stringWithFormat:@"Refresh preferences were not confirmed (errno %d: %s).", savedErrno, strerror(savedErrno)] :
-            (spawnResult != 0 ?
-                [NSString stringWithFormat:@"Could not start PosterBoard refresh command (executable %@; result %d: %s).", LBResolveKillallExecutable() ?: @"not found", spawnResult, strerror(spawnResult)] :
-                [NSString stringWithFormat:@"PosterBoard restart command exited with status %d.", exitStatus]);
+            LBRefreshFailureDescription(refresh);
         result[@"refreshWarning"] = [NSString stringWithFormat:@"%@ Descriptor files remain published; a device restart or manual PosterBoard restart may be required.", detail];
     }
     return result;
