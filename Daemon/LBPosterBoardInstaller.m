@@ -17,6 +17,12 @@
 
 extern char **environ;
 
+typedef pid_t (*LBWaitPIDFunction)(pid_t, int *, int);
+
+static pid_t LBDefaultWaitPID(pid_t pid, int *status, int options) {
+    return waitpid(pid, status, options);
+}
+
 static NSString * const LBIssueDomain = @"com.iuyghi.LumenBoard.PosterBoardInstaller";
 static NSString * const LBCollectionsExtension = @"com.apple.WallpaperKit.CollectionsPoster";
 static const NSInteger LBExpectedStructureVersion = 59;
@@ -32,7 +38,8 @@ static NSArray<NSString *> *LBKillallExecutableCandidates(void) {
 
 static NSDictionary *LBRunPosterBoardRefresh(NSArray<NSString *> *candidates,
                                                NSString *processName,
-                                               NSTimeInterval timeout) {
+                                               NSTimeInterval timeout,
+                                               LBWaitPIDFunction waitFunction) {
     NSMutableArray<NSString *> *attempted = [NSMutableArray array];
     NSString *executable = nil;
     for (id value in candidates) {
@@ -76,7 +83,7 @@ static NSDictionary *LBRunPosterBoardRefresh(NSArray<NSString *> *candidates,
             const NSTimeInterval effectiveTimeout = timeout > 0.0 ? timeout : 15.0;
             for (;;) {
                 int status = 0;
-                pid_t waited = waitpid(pid, &status, WNOHANG);
+                pid_t waited = waitFunction(pid, &status, WNOHANG);
                 if (waited == pid) {
                     childReaped = YES;
                     if (WIFEXITED(status)) {
@@ -116,7 +123,7 @@ static NSDictionary *LBRunPosterBoardRefresh(NSArray<NSString *> *candidates,
             if (killResult == 0 || killError == ESRCH) {
                 int status = 0;
                 pid_t waited;
-                do { waited = waitpid(pid, &status, 0); } while (waited < 0 && errno == EINTR);
+                do { waited = waitFunction(pid, &status, 0); } while (waited < 0 && errno == EINTR);
                 if (waited == pid) {
                     childReaped = YES;
                     if (WIFSIGNALED(status)) terminationSignal = WTERMSIG(status);
@@ -539,7 +546,7 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
 + (NSDictionary *)runRefreshCommandForTestingWithCandidates:(NSArray<NSString *> *)candidates
                                                 processName:(NSString *)processName
                                                      timeout:(NSTimeInterval)timeout {
-    return LBRunPosterBoardRefresh(candidates, processName, timeout);
+    return LBRunPosterBoardRefresh(candidates, processName, timeout, LBDefaultWaitPID);
 }
 
 + (NSString *)findPosterBoardContainer:(NSError **)error {
@@ -706,7 +713,7 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
     }
 
     NSDictionary *refresh = preferencesWritten ?
-        LBRunPosterBoardRefresh(LBKillallExecutableCandidates(), @"PosterBoard", 15.0) :
+        LBRunPosterBoardRefresh(candidates, @"PosterBoard", 15.0, LBDefaultWaitPID) :
         @{
             @"refreshExecutable": @"",
             @"refreshCandidatePaths": @[],
@@ -826,6 +833,12 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
 
 
 + (NSDictionary *)requestPosterBoardRefreshForContainer:(NSString *)containerPath {
+    return [self requestPosterBoardRefreshForContainer:containerPath
+                                     killallCandidates:LBKillallExecutableCandidates()];
+}
+
++ (NSDictionary *)requestPosterBoardRefreshForContainer:(NSString *)containerPath
+                                       killallCandidates:(NSArray<NSString *> *)candidates {
     NSString *preferencesPath = [containerPath stringByAppendingPathComponent:@"Library/Preferences/com.apple.PosterBoard.unprotectedUserDefaults.plist"];
     NSMutableDictionary *preferences = [[NSDictionary dictionaryWithContentsOfFile:preferencesPath] mutableCopy] ?: [NSMutableDictionary dictionary];
     preferences[@"PBF_LOCALE_DID_CHANGE"] = @NO;
