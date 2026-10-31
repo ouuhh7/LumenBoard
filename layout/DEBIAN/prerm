@@ -4,9 +4,15 @@ set -eu
 SERVICE="user/foreground/com.iuyghi.lumenboardd"
 LAUNCHCTL="${LUMENBOARD_LAUNCHCTL:-/bin/launchctl}"
 
-# Removal/upgrade is idempotent when the service is already absent.
+# Stop the service before dpkg removes/replaces its executable.
+# If bootout races with an already-stopped service, the second print decides.
 if "$LAUNCHCTL" print "$SERVICE" >/dev/null 2>&1; then
-    "$LAUNCHCTL" bootout "$SERVICE" || true
+    if ! "$LAUNCHCTL" bootout "$SERVICE" >/dev/null 2>&1; then
+        if "$LAUNCHCTL" print "$SERVICE" >/dev/null 2>&1; then
+            echo "LumenBoard: could not stop $SERVICE; refusing package removal/upgrade while it remains registered." >&2
+            exit 1
+        fi
+    fi
 fi
 
 exit 0
