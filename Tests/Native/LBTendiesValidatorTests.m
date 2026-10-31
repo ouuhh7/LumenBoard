@@ -13,13 +13,15 @@ static NSData *StoredZip(NSArray<NSDictionary *> *items, BOOL corruptCRC) {
         Append32(out,0x04034b50);Append16(out,20);Append16(out,0);Append16(out,0);Append16(out,0);Append16(out,0);
         Append32(out,(uint32_t)crc);Append32(out,(uint32_t)payload.length);Append32(out,(uint32_t)payload.length);
         Append16(out,(uint16_t)name.length);Append16(out,0);[out appendData:name];[out appendData:payload];
-        [records addObject:@{@"name":name,@"crc":@((uint32_t)crc),@"size":@(payload.length),@"offset":@(offset)}];
+        uint32_t external=[item[@"directory"] boolValue] ? ((0040000u|0755u)<<16) : (0100644u<<16);
+        if([item[@"directory"] boolValue]) external|=0x10;
+        [records addObject:@{@"name":name,@"crc":@((uint32_t)crc),@"size":@(payload.length),@"offset":@(offset),@"external":@(external)}];
     }
     NSUInteger centralOffset=out.length;
     for(NSDictionary *r in records){
         NSData *name=r[@"name"];Append32(out,0x02014b50);Append16(out,20);Append16(out,20);Append16(out,0);Append16(out,0);Append16(out,0);Append16(out,0);
         Append32(out,[r[@"crc"] unsignedIntValue]);Append32(out,[r[@"size"] unsignedIntValue]);Append32(out,[r[@"size"] unsignedIntValue]);
-        Append16(out,(uint16_t)name.length);Append16(out,0);Append16(out,0);Append16(out,0);Append16(out,0);Append32(out,0100644u<<16);Append32(out,[r[@"offset"] unsignedIntValue]);[out appendData:name];
+        Append16(out,(uint16_t)name.length);Append16(out,0);Append16(out,0);Append16(out,0);Append16(out,0);Append32(out,[r[@"external"] unsignedIntValue]);Append32(out,[r[@"offset"] unsignedIntValue]);[out appendData:name];
     }
     NSUInteger centralSize=out.length-centralOffset;
     Append32(out,0x06054b50);Append16(out,0);Append16(out,0);Append16(out,(uint16_t)records.count);Append16(out,(uint16_t)records.count);Append32(out,(uint32_t)centralSize);Append32(out,(uint32_t)centralOffset);Append16(out,0);
@@ -188,6 +190,19 @@ static NSData *StoredZipWithDescriptor(NSString *entryName, NSData *payload, BOO
     NSString *p=[self writeZip:StoredZip(@[
         @{@"name":@"descriptors/",@"data":empty},
         @{@"name":@"descriptors/fixture/",@"data":empty},
+        @{@"name":@"descriptors/fixture/Wallpaper.plist",@"data":plist}
+    ],NO)];
+    NSError *e=nil; NSDictionary *r=[LBTendiesValidator validateArchiveAtPath:p extractToPath:nil error:&e];
+    XCTAssertNil(e); XCTAssertEqualObjects(r[@"status"],@"valid");
+    [[NSFileManager defaultManager]removeItemAtPath:p error:nil];
+}
+- (void)testAcceptsUnixDirectoryEntriesWithoutTrailingSlash {
+    NSDictionary *wp=@{@"identifier":@1,@"name":@"Synthetic",@"assets":@{}};
+    NSData *plist=[NSPropertyListSerialization dataWithPropertyList:wp format:NSPropertyListXMLFormat_v1_0 options:0 error:nil];
+    NSData *empty=[NSData data];
+    NSString *p=[self writeZip:StoredZip(@[
+        @{@"name":@"descriptors",@"data":empty,@"directory":@YES},
+        @{@"name":@"descriptors/fixture",@"data":empty,@"directory":@YES},
         @{@"name":@"descriptors/fixture/Wallpaper.plist",@"data":plist}
     ],NO)];
     NSError *e=nil; NSDictionary *r=[LBTendiesValidator validateArchiveAtPath:p extractToPath:nil error:&e];
