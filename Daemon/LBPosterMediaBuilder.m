@@ -94,14 +94,17 @@ static BOOL LBMediaWriteJPEG(UIImage *image, NSString *path, CGFloat quality, NS
     return LBMediaWriteXMLPlist(index, [directory stringByAppendingPathComponent:@"index.xml"], error);
 }
 
-+ (BOOL)writeEmptyLayerAt:(NSString *)directory error:(NSError **)error {
-    NSString *caml = @"<?xml version=\"1.0\" encoding=\"UTF-8\"?><caml xmlns=\"http://www.apple.com/CoreAnimation/1.0\"><CALayer bounds=\"0 0 1 1\" hidden=\"0\" name=\"_FLOATING\" position=\"0.5 0.5\"><sublayers/></CALayer></caml>";
++ (BOOL)writeEmptyLayerAt:(NSString *)directory width:(NSInteger)width height:(NSInteger)height error:(NSError **)error {
+    NSString *caml = [NSString stringWithFormat:
+        @"<?xml version=\"1.0\" encoding=\"UTF-8\"?><caml xmlns=\"http://www.apple.com/CoreAnimation/1.0\"><CALayer bounds=\"0 0 %ld %ld\" hidden=\"0\" name=\"_FLOATING\" position=\"%g %g\"><sublayers/></CALayer></caml>",
+        (long)width, (long)height, width / 2.0, height / 2.0];
     return LBMediaWriteText(caml, [directory stringByAppendingPathComponent:@"main.caml"], error) &&
-        [self writeIndexAt:directory width:1 height:1 documentResizesToView:NO scalesToFitInPlayer:NO error:error];
+        [self writeIndexAt:directory width:width height:height documentResizesToView:NO scalesToFitInPlayer:NO error:error];
 }
 
 + (BOOL)buildAnimationAt:(NSString *)directory source:(NSString *)source kind:(NSString *)kind
-                 blurred:(BOOL)blurred error:(NSError **)error {
+                 blurred:(BOOL)blurred outputWidth:(NSInteger *)outputWidth outputHeight:(NSInteger *)outputHeight
+                   error:(NSError **)error {
     NSString *assets = [directory stringByAppendingPathComponent:@"assets"];
     if (!LBMediaEnsureDirectory(assets, error)) return NO;
 
@@ -160,6 +163,8 @@ static BOOL LBMediaWriteJPEG(UIImage *image, NSString *path, CGFloat quality, NS
         if (error) *error = LBMediaError(24, @"The generated wallpaper has no valid image dimensions or frames.");
         return NO;
     }
+    if (outputWidth) *outputWidth = width;
+    if (outputHeight) *outputHeight = height;
 
     NSMutableString *values = [NSMutableString string];
     for (NSString *name in names) [values appendFormat:@"<CGImage src=\"assets/%@\"/>", name];
@@ -240,12 +245,14 @@ static BOOL LBMediaWriteJPEG(UIImage *image, NSString *path, CGFloat quality, NS
     if (ok) ok = LBMediaWritePlist(wallpaperPlist, [wallpaper stringByAppendingPathComponent:@"Wallpaper.plist"], error);
 
     BOOL useHomeBlur = homeBlur && [kind isEqualToString:@"image"];
+    NSInteger backgroundWidth = 0, backgroundHeight = 0;
     if (ok) ok = [self buildAnimationAt:background source:sourcePath
-        kind:kind blurred:useHomeBlur error:error];
+        kind:kind blurred:useHomeBlur outputWidth:&backgroundWidth outputHeight:&backgroundHeight error:error];
     if (ok && useHomeBlur) {
-        ok = [self buildAnimationAt:floating source:sourcePath kind:@"image" blurred:NO error:error];
+        ok = [self buildAnimationAt:floating source:sourcePath kind:@"image" blurred:NO
+            outputWidth:NULL outputHeight:NULL error:error];
     } else if (ok) {
-        ok = [self writeEmptyLayerAt:floating error:error];
+        ok = [self writeEmptyLayerAt:floating width:backgroundWidth height:backgroundHeight error:error];
     }
 
     if (!ok) {
