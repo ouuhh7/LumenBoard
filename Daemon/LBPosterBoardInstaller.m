@@ -69,6 +69,7 @@ static NSDictionary *LBRunPosterBoardRefresh(NSArray<NSString *> *candidates,
 
     if (spawnResult == 0) {
         struct timespec started = {0}, now = {0};
+        BOOL childReaped = NO;
         if (clock_gettime(CLOCK_MONOTONIC, &started) != 0) {
             waitError = errno ?: EIO;
         } else {
@@ -77,6 +78,7 @@ static NSDictionary *LBRunPosterBoardRefresh(NSArray<NSString *> *candidates,
                 int status = 0;
                 pid_t waited = waitpid(pid, &status, WNOHANG);
                 if (waited == pid) {
+                    childReaped = YES;
                     if (WIFEXITED(status)) {
                         exitStatus = WEXITSTATUS(status);
                         requested = (exitStatus == 0);
@@ -88,6 +90,7 @@ static NSDictionary *LBRunPosterBoardRefresh(NSArray<NSString *> *candidates,
                 if (waited < 0) {
                     if (errno == EINTR) continue;
                     waitError = errno ?: ECHILD;
+                    if (errno == ECHILD) childReaped = YES;
                     break;
                 }
                 if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
@@ -105,15 +108,24 @@ static NSDictionary *LBRunPosterBoardRefresh(NSArray<NSString *> *candidates,
             }
         }
 
-        if (timedOut || waitError != 0) {
+        if ((timedOut || waitError != 0) && !childReaped) {
             // Never leave a hung child or zombie behind. ESRCH means it exited
             // between the last waitpid and kill; waitpid below still reaps it.
-            if (kill(pid, SIGKILL) != 0 && errno != ESRCH && waitError == 0) waitError = errno;
-            int status = 0;
-            pid_t waited;
-            do { waited = waitpid(pid, &status, 0); } while (waited < 0 && errno == EINTR);
-            if (waited == pid && WIFSIGNALED(status)) terminationSignal = WTERMSIG(status);
-            else if (waited < 0 && waitError == 0) waitError = errno ?: ECHILD;
+            int killResult = kill(pid, SIGKILL);
+            int killError = killResult == 0 ? 0 : errno;
+            if (killResult == 0 || killError == ESRCH) {
+                int status = 0;
+                pid_t waited;
+                do { waited = waitpid(pid, &status, 0); } while (waited < 0 && errno == EINTR);
+                if (waited == pid) {
+                    childReaped = YES;
+                    if (WIFSIGNALED(status)) terminationSignal = WTERMSIG(status);
+                } else if (waited < 0 && waitError == 0) {
+                    waitError = errno ?: ECHILD;
+                }
+            } else if (waitError == 0) {
+                waitError = killError;
+            }
         }
     }
 
