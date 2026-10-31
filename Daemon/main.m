@@ -272,6 +272,7 @@ static NSDictionary *LBProcessMediaInstallRequest(NSDictionary *request, NSError
     manifest[@"installedDescriptorIdentifiers"] = report[@"installedDescriptorIdentifiers"] ?: @[];
     manifest[@"installationReport"] = report;
     manifest[@"registeredAt"] = [NSDate date];
+    [manifest removeObjectForKey:@"daemonRequestID"];
     NSData *manifestData = [NSPropertyListSerialization dataWithPropertyList:manifest format:NSPropertyListBinaryFormat_v1_0 options:0 error:error];
     if (!manifestData || ![manifestData writeToFile:manifestPath options:NSDataWritingAtomic error:error]) return nil;
     if (!LBEnsureMobileOwnership(manifestPath)) {
