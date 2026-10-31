@@ -127,10 +127,11 @@ jobs:
           file "$DAEMON" | tee daemon-binary-file.txt
           grep -Eiq 'Mach-O.*arm64' preference-binary-file.txt
           grep -Eiq 'Mach-O.*arm64' daemon-binary-file.txt
-          lipo -verify_arch arm64 "$PREFS"
-          lipo -verify_arch arm64 "$DAEMON"
+          lipo "$PREFS" -verify_arch arm64
+          lipo "$DAEMON" -verify_arch arm64
           otool -L "$PREFS" "$DAEMON" | tee macho-dependencies.txt
-          otool -l "$PREFS" "$DAEMON" | grep -q "LC_CODE_SIGNATURE"
+          otool -l "$PREFS" | grep -q "LC_CODE_SIGNATURE"
+          otool -l "$DAEMON" | grep -q "LC_CODE_SIGNATURE"
 
           plutil -lint "$LAUNCHD"
           test "$(/usr/libexec/PlistBuddy -c 'Print :Label' "$LAUNCHD")" = "com.iuyghi.lumenboardd"
