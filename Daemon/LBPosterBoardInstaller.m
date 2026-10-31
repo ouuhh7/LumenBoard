@@ -575,11 +575,11 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
     int exitStatus = -1;
     int terminationSignal = 0;
     BOOL refreshRequested = NO;
+    pid_t pid = 0;
     if (preferencesWritten) {
         NSString *killallPath = LBResolveKillallExecutable();
         if (killallPath) {
             char *arguments[] = {(char *)killallPath.fileSystemRepresentation, "-9", "PosterBoard", NULL};
-            pid_t pid = 0;
             spawnResult = posix_spawn(&pid, arguments[0], NULL, NULL, arguments, environ);
         } else {
             spawnResult = ENOENT;
@@ -742,11 +742,11 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
     }
     int spawnResult = -1, exitStatus = -1, waitError = 0;
     BOOL requested = NO;
+    pid_t pid = 0;
     if (written) {
         NSString *killallPath = LBResolveKillallExecutable();
         if (killallPath) {
             char *arguments[] = {(char *)killallPath.fileSystemRepresentation, "-9", "PosterBoard", NULL};
-            pid_t pid = 0;
             spawnResult = posix_spawn(&pid, arguments[0], NULL, NULL, arguments, environ);
         } else {
             spawnResult = ENOENT;
