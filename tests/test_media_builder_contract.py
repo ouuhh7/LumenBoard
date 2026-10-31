@@ -55,7 +55,9 @@ class NativeMediaPipelineContractTests(unittest.TestCase):
         self.assertLess(stock_usr, stock_bin)
         self.assertIn("S_ISREG(candidateStat.st_mode)", source)
         self.assertIn("access(candidate.fileSystemRepresentation, X_OK) == 0", source)
-        self.assertEqual(source.count('LBRunPosterBoardRefresh(LBKillallExecutableCandidates(), @"PosterBoard", 15.0)'), 2)
+        self.assertEqual(source.count('LBRunPosterBoardRefresh(LBKillallExecutableCandidates(), @"PosterBoard", 15.0, LBDefaultWaitPID)'), 1)
+        self.assertEqual(source.count('LBRunPosterBoardRefresh(candidates, @"PosterBoard", 15.0, LBDefaultWaitPID)'), 1)
+        self.assertIn("killallCandidates:LBKillallExecutableCandidates()", source)
 
     def test_refresh_process_wait_is_bounded_and_reports_all_terminal_states(self):
         source = (ROOT / "Daemon/LBPosterBoardInstaller.m").read_text()
@@ -68,6 +70,8 @@ class NativeMediaPipelineContractTests(unittest.TestCase):
             "refreshProcessTimedOut",
             "refreshCandidatePaths",
             "refreshProcessTerminationSignal",
+            "childReaped",
+            "errno == ECHILD",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, source)
