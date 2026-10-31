@@ -212,7 +212,7 @@ static NSData *StoredZipWithDescriptor(NSString *entryName, NSData *payload, BOO
 - (void)testRejectsFileUsedAsAncestorOfNestedPath {
     NSData *empty=[NSData data];
     NSString *p=[self writeZip:StoredZip(@[
-        @{@"name":@"descriptors/fixture",@"data":empty},
+        @{@"name":@"descriptors/fixture",@"data":[@"not-a-directory" dataUsingEncoding:NSUTF8StringEncoding]},
         @{@"name":@"descriptors/fixture/Wallpaper.plist",@"data":empty}
     ],NO)];
     NSError *e=nil; NSDictionary *r=[LBTendiesValidator validateArchiveAtPath:p extractToPath:nil error:&e];
@@ -223,7 +223,7 @@ static NSData *StoredZipWithDescriptor(NSString *entryName, NSData *payload, BOO
     NSData *empty=[NSData data];
     NSString *p=[self writeZip:StoredZip(@[
         @{@"name":@"descriptors/fixture/Wallpaper.plist",@"data":empty},
-        @{@"name":@"descriptors/fixture",@"data":empty}
+        @{@"name":@"descriptors/fixture",@"data":[@"not-a-directory" dataUsingEncoding:NSUTF8StringEncoding]}
     ],NO)];
     NSError *e=nil; NSDictionary *r=[LBTendiesValidator validateArchiveAtPath:p extractToPath:nil error:&e];
     XCTAssertNotNil(e); XCTAssertEqualObjects(r[@"status"],@"invalid");
