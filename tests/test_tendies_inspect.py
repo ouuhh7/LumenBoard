@@ -322,7 +322,7 @@ class ProjectPackagingContractTests(unittest.TestCase):
         self.assertIn('@"refreshProcessTerminationSignal": @(terminationSignal)', installer)
         self.assertIn("LBKillallExecutableCandidates()", installer)
         self.assertIn("LBRunPosterBoardRefresh(candidates, @\"PosterBoard\", 15.0, LBDefaultWaitPID)", installer)
-        self.assertIn("waitpid(pid, &status, WNOHANG)", installer)
+        self.assertIn("waitFunction(pid, &status, WNOHANG)", installer)
         self.assertIn("refreshProcessTimedOut", installer)
         self.assertIn("refresh preferences could not be written/owned", installer)
         self.assertNotIn("chown(preferencesPath.fileSystemRepresentation, mobile->pw_uid, mobile->pw_gid) != 0 ||", installer)
