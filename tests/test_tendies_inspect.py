@@ -269,9 +269,10 @@ class ProjectPackagingContractTests(unittest.TestCase):
         self.assertNotIn("Architecture: iphoneos-arm\n", control)
 
     def test_preference_bundle_declares_executable(self):
-        info = (self.PROJECT / "Preferences" / "Info.plist").read_text()
-        self.assertIn("CFBundleExecutable = LumenBoardPrefs;", info)
-        self.assertIn("NSPrincipalClass = LumenBoardRootListController;", info)
+        info = plistlib.loads((self.PROJECT / "Preferences" / "Info.plist").read_bytes())
+        self.assertEqual(info["CFBundleExecutable"], "LumenBoardPrefs")
+        self.assertEqual(info["NSPrincipalClass"], "LumenBoardRootListController")
+        self.assertEqual(info["CFBundleVersion"], "15")
 
     def test_native_daemon_is_built_and_staged_for_rootless_launchd(self):
         makefile = (self.PROJECT / "Makefile").read_text()
