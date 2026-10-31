@@ -310,6 +310,19 @@ class ProjectPackagingContractTests(unittest.TestCase):
         self.assertIn("ignoredMetadataEntries", source)
 
 
+    def test_posterboard_refresh_skips_unprivileged_chown_for_already_mobile_owned_preferences(self):
+        installer = (self.PROJECT / "Daemon" / "LBPosterBoardInstaller.m").read_text()
+        self.assertIn("preferenceStat.st_uid != mobile->pw_uid", installer)
+        self.assertIn("preferenceStat.st_gid != mobile->pw_gid", installer)
+        self.assertIn("if (geteuid() == 0)", installer)
+        self.assertIn('final[@"refreshPreferencesErrno"]', installer)
+        self.assertIn('final[@"refreshSpawnResult"]', installer)
+        self.assertIn('final[@"refreshProcessExitStatus"]', installer)
+        self.assertIn('final[@"refreshProcessTerminationSignal"]', installer)
+        self.assertIn("if (preferencesWritten) {", installer)
+        self.assertIn("refresh preferences could not be written/owned", installer)
+        self.assertNotIn("chown(preferencesPath.fileSystemRepresentation, mobile->pw_uid, mobile->pw_gid) != 0 ||", installer)
+
     def test_duplicate_tendies_path_performs_read_only_live_store_verification(self):
         installer = (self.PROJECT / "Daemon" / "LBPosterBoardInstaller.m").read_text()
         header = (self.PROJECT / "Daemon" / "LBPosterBoardInstaller.h").read_text()
