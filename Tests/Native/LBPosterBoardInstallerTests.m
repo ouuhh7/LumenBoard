@@ -6,37 +6,6 @@
 @interface LBPosterBoardInstallerTests : XCTestCase
 @property(nonatomic, copy) NSString *temporaryRoot;
 
-- (void)testReadOnlyVerificationFindsPublishedDescriptorAndReportsMissingRecord {
-    NSString *input = [self makeDescriptorGroupWithNames:@[@"Verification fixture"] missingFiles:[NSSet set]];
-    NSString *container = [self.temporaryRoot stringByAppendingPathComponent:@"MockPosterBoardContainer"];
-    NSString *descriptorRoot = [[container stringByAppendingPathComponent:@"Library/Application Support/PRBPosterExtensionDataStore/59/Extensions"]
-        stringByAppendingPathComponent:@"com.apple.WallpaperKit.CollectionsPoster/descriptors"];
-    NSError *error = nil;
-    NSDictionary *installed = [LBPosterBoardInstaller installExtractedDescriptorTreeAtPath:input
-        descriptorRoot:descriptorRoot error:&error];
-    XCTAssertNotNil(installed, @"%@", error);
-    NSString *uuid = [installed[@"installedDescriptorIdentifiers"] firstObject];
-
-    NSDictionary *complete = [LBPosterBoardInstaller verifyRegisteredDescriptorIdentifiers:@[uuid]
-        posterBoardContainer:container error:&error];
-    XCTAssertNotNil(complete, @"%@", error);
-    XCTAssertEqualObjects(complete[@"descriptorStoreState"], @"complete");
-    XCTAssertEqualObjects(complete[@"verificationScope"], @"filesystem-registration-only");
-    XCTAssertEqualObjects(complete[@"posterBoardApplicationState"], @"unverified");
-    XCTAssertEqualObjects(complete[@"expectedDescriptorCount"], @1);
-    XCTAssertEqualObjects(complete[@"presentDescriptorCount"], @1);
-    XCTAssertEqualObjects(complete[@"missingDescriptorCount"], @0);
-    XCTAssertEqualObjects(complete[@"invalidDescriptorCount"], @0);
-
-    NSString *published = [descriptorRoot stringByAppendingPathComponent:uuid];
-    XCTAssertTrue([[NSFileManager defaultManager] removeItemAtPath:published error:&error], @"%@", error);
-    NSDictionary *missing = [LBPosterBoardInstaller verifyRegisteredDescriptorIdentifiers:@[uuid]
-        posterBoardContainer:container error:&error];
-    XCTAssertNotNil(missing, @"%@", error);
-    XCTAssertEqualObjects(missing[@"descriptorStoreState"], @"missing");
-    XCTAssertEqualObjects(missing[@"presentDescriptorCount"], @0);
-    XCTAssertEqualObjects(missing[@"missingDescriptorCount"], @1);
-}
 
 @end
 
@@ -255,4 +224,36 @@
     XCTAssertNotNil(error);
 }
 
+
+- (void)testReadOnlyVerificationFindsPublishedDescriptorAndReportsMissingRecord {
+    NSString *input = [self makeDescriptorGroupWithNames:@[@"Verification fixture"] missingFiles:[NSSet set]];
+    NSString *container = [self.temporaryRoot stringByAppendingPathComponent:@"MockPosterBoardContainer"];
+    NSString *descriptorRoot = [[container stringByAppendingPathComponent:@"Library/Application Support/PRBPosterExtensionDataStore/59/Extensions"]
+        stringByAppendingPathComponent:@"com.apple.WallpaperKit.CollectionsPoster/descriptors"];
+    NSError *error = nil;
+    NSDictionary *installed = [LBPosterBoardInstaller installExtractedDescriptorTreeAtPath:input
+        descriptorRoot:descriptorRoot error:&error];
+    XCTAssertNotNil(installed, @"%@", error);
+    NSString *uuid = [installed[@"installedDescriptorIdentifiers"] firstObject];
+
+    NSDictionary *complete = [LBPosterBoardInstaller verifyRegisteredDescriptorIdentifiers:@[uuid]
+        posterBoardContainer:container error:&error];
+    XCTAssertNotNil(complete, @"%@", error);
+    XCTAssertEqualObjects(complete[@"descriptorStoreState"], @"complete");
+    XCTAssertEqualObjects(complete[@"verificationScope"], @"filesystem-registration-only");
+    XCTAssertEqualObjects(complete[@"posterBoardApplicationState"], @"unverified");
+    XCTAssertEqualObjects(complete[@"expectedDescriptorCount"], @1);
+    XCTAssertEqualObjects(complete[@"presentDescriptorCount"], @1);
+    XCTAssertEqualObjects(complete[@"missingDescriptorCount"], @0);
+    XCTAssertEqualObjects(complete[@"invalidDescriptorCount"], @0);
+
+    NSString *published = [descriptorRoot stringByAppendingPathComponent:uuid];
+    XCTAssertTrue([[NSFileManager defaultManager] removeItemAtPath:published error:&error], @"%@", error);
+    NSDictionary *missing = [LBPosterBoardInstaller verifyRegisteredDescriptorIdentifiers:@[uuid]
+        posterBoardContainer:container error:&error];
+    XCTAssertNotNil(missing, @"%@", error);
+    XCTAssertEqualObjects(missing[@"descriptorStoreState"], @"missing");
+    XCTAssertEqualObjects(missing[@"presentDescriptorCount"], @0);
+    XCTAssertEqualObjects(missing[@"missingDescriptorCount"], @1);
+}
 @end
