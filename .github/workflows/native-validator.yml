@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - work/tendies-native-validation
+      - fix/rootless-deb-installation
   pull_request:
     branches:
       - work/tendies-native-validation
+      - fix/rootless-deb-installation
   workflow_dispatch:
 
 permissions:
@@ -88,17 +90,97 @@ jobs:
           set -euo pipefail
           DEB="$(find packages -maxdepth 1 -type f -name '*.deb' -print -quit)"
           test -n "$DEB"
+          # Validate the ar/deb container before inspecting its payload.
+          ar t "$DEB" | tee package-archive-members.txt
+          grep -Fxq "debian-binary" package-archive-members.txt
+          grep -Fxq "control.tar.gz" package-archive-members.txt
+          grep -Fxq "data.tar.xz" package-archive-members.txt
+          test "$(ar p "$DEB" debian-binary)" = "2.0"
+
           dpkg-deb --info "$DEB"
           dpkg-deb --contents "$DEB" | tee package-contents.txt
           dpkg-deb -f "$DEB" Package Version Architecture Depends | tee package-control.txt
+          test "$(dpkg-deb -f "$DEB" Package)" = "com.iuyghi.lumenboard"
+          test "$(dpkg-deb -f "$DEB" Version)" = "0.1.0-2"
           test "$(dpkg-deb -f "$DEB" Architecture)" = "iphoneos-arm64"
-          grep -q "var/jb/Library/PreferenceBundles/LumenBoardPrefs.bundle" package-contents.txt
-          grep -q "var/jb/usr/libexec/lumenboardd" package-contents.txt
-          grep -q "var/jb/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist" package-contents.txt
+          test "$(dpkg-deb -f "$DEB" Depends)" = "firmware (>= 16.0), firmware (<< 17.0), preferenceloader"
+
           dpkg-deb -x "$DEB" extracted-deb
-          test -x extracted-deb/var/jb/usr/libexec/lumenboardd
-          plutil -lint extracted-deb/var/jb/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist
+          dpkg-deb -e "$DEB" extracted-control
+          BUNDLE="extracted-deb/var/jb/Library/PreferenceBundles/LumenBoardPrefs.bundle"
+          INFO="$BUNDLE/Info.plist"
+          PREFS="$BUNDLE/LumenBoardPrefs"
+          DAEMON="extracted-deb/var/jb/usr/libexec/lumenboardd"
+          LAUNCHD="extracted-deb/var/jb/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist"
+
+          # Regression guard: Preferences bundles without this plist are not loadable.
+          test -f "$INFO"
+          plutil -lint "$INFO"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$INFO")" = "com.iuyghi.lumenboard.preferences"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$INFO")" = "LumenBoardPrefs"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundlePackageType' "$INFO")" = "BNDL"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSPrincipalClass' "$INFO")" = "LumenBoardRootListController"
+
+          test -x "$PREFS"
+          test -x "$DAEMON"
+          file "$PREFS" | tee preference-binary-file.txt
+          file "$DAEMON" | tee daemon-binary-file.txt
+          grep -Eiq 'Mach-O.*arm64' preference-binary-file.txt
+          grep -Eiq 'Mach-O.*arm64' daemon-binary-file.txt
+          lipo -verify_arch arm64 "$PREFS"
+          lipo -verify_arch arm64 "$DAEMON"
+          otool -L "$PREFS" "$DAEMON" | tee macho-dependencies.txt
+          otool -l "$PREFS" "$DAEMON" | grep -q "LC_CODE_SIGNATURE"
+
+          plutil -lint "$LAUNCHD"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :Label' "$LAUNCHD")" = "com.iuyghi.lumenboardd"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$LAUNCHD")" = "/var/jb/usr/libexec/lumenboardd"
+
+          # Check the actual control archive scripts, not only the source copies.
+          for script in postinst prerm; do
+            test -x "extracted-control/$script"
+            sh -n "extracted-control/$script"
+          done
+
+          python3 - <<'PY'
+          import pathlib, stat, sys
+          root = pathlib.Path("extracted-deb/var/jb")
+          executable = {
+              "usr/libexec/lumenboardd",
+              "Library/PreferenceBundles/LumenBoardPrefs.bundle/LumenBoardPrefs",
+          }
+          if not root.is_dir():
+              raise SystemExit("FAIL: rootless /var/jb payload is missing")
+          for path in root.rglob("*"):
+              if path.is_symlink():
+                  raise SystemExit(f"FAIL: unexpected symlink in package: {path}")
+              mode = stat.S_IMODE(path.stat().st_mode)
+              relative = path.relative_to(root).as_posix()
+              expected = 0o755 if path.is_dir() or relative in executable else 0o644
+              if mode != expected:
+                  raise SystemExit(f"FAIL: mode {mode:04o} != {expected:04o}: {path}")
+              if path.stat().st_mode & (stat.S_ISUID | stat.S_ISGID | stat.S_IWGRP | stat.S_IWOTH):
+                  raise SystemExit(f"FAIL: unsafe permission bits: {path}")
+          print("PASS: rootless payload contains no symlinks or unsafe permissions")
+          PY
+
+          # Debian's archive owner metadata should remain root:wheel for jailbreak install.
+          if dpkg-deb --contents "$DEB" | awk 'NF && $2 != "root/wheel" { print; bad=1 } END { exit bad }'; then
+            echo "PASS: package payload owners are root:wheel"
+          else
+            echo "FAIL: package contains payload entries not owned by root:wheel" >&2
+            exit 1
+          fi
+
           shasum -a 256 "$DEB" | tee SHA256SUMS
+          {
+            echo "Package: $(dpkg-deb -f "$DEB" Package)"
+            echo "Version: $(dpkg-deb -f "$DEB" Version)"
+            echo "Architecture: $(dpkg-deb -f "$DEB" Architecture)"
+            echo "SHA-256: $(shasum -a 256 "$DEB" | awk '{print $1}')"
+            echo "Scope: archive, metadata, rootless paths, binary architecture, signatures, bundle Info.plist, and control-script syntax verified"
+            echo "Not verified: installation or PosterBoard runtime on iPhone"
+          } | tee package-verification.txt
       - name: Upload package and verification
         uses: actions/upload-artifact@v4
         with:
@@ -108,3 +190,8 @@ jobs:
             package-contents.txt
             package-control.txt
             SHA256SUMS
+            package-archive-members.txt
+            preference-binary-file.txt
+            daemon-binary-file.txt
+            macho-dependencies.txt
+            package-verification.txt

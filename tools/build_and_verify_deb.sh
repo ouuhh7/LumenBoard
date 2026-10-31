@@ -35,6 +35,11 @@ echo "=== dpkg-deb --info ==="
 dpkg-deb --info "$deb"
 arch="$(dpkg-deb -f "$deb" Architecture)"
 pkg="$(dpkg-deb -f "$deb" Package)"
+version="$(dpkg-deb -f "$deb" Version)"
+if [[ "$version" != "0.1.0-2" ]]; then
+  echo "ERROR: expected package version 0.1.0-2; got '$version'" >&2
+  exit 13
+fi
 if [[ "$arch" != "iphoneos-arm64" ]]; then
   echo "ERROR: expected Architecture: iphoneos-arm64; got '$arch'" >&2
   exit 6
@@ -66,9 +71,35 @@ if ! file "$bundle/LumenBoardPrefs" | grep -Eiq 'Mach-O.*arm64|Mach-O universal'
   exit 11
 fi
 
+info_plist="$bundle/Info.plist"
+if [[ ! -f "$info_plist" ]]; then
+  echo "ERROR: missing required Preferences bundle Info.plist: $info_plist" >&2
+  exit 14
+fi
+grep -Fq 'CFBundleIdentifier = com.iuyghi.lumenboard.preferences;' "$info_plist"
+grep -Fq 'CFBundleExecutable = LumenBoardPrefs;' "$info_plist"
+grep -Fq 'CFBundlePackageType = BNDL;' "$info_plist"
+
+daemon="$stage/var/jb/usr/libexec/lumenboardd"
+if [[ ! -x "$daemon" ]] || ! file "$daemon" | grep -Eiq 'Mach-O.*arm64'; then
+  echo "ERROR: rootless daemon is missing, not executable, or not an arm64 Mach-O binary" >&2
+  file "$daemon" >&2 || true
+  exit 15
+fi
+
+control_dir="$stage/control"
+dpkg-deb -e "$deb" "$control_dir"
+for script in postinst prerm; do
+  if [[ ! -x "$control_dir/$script" ]]; then
+    echo "ERROR: maintainer script is not executable in control archive: $script" >&2
+    exit 16
+  fi
+  sh -n "$control_dir/$script"
+done
+
 echo "=== package fields ==="
 printf 'Package: %s\nArchitecture: %s\nVersion: %s\nDepends: %s\n' \
-  "$pkg" "$arch" "$(dpkg-deb -f "$deb" Version)" "$(dpkg-deb -f "$deb" Depends)"
+  "$pkg" "$arch" "$version" "$(dpkg-deb -f "$deb" Depends)"
 echo "=== package contents ==="
 dpkg-deb --contents "$deb"
 echo "=== compiled executable ==="

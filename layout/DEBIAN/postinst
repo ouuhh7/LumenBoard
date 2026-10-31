@@ -1,5 +1,29 @@
 #!/bin/sh
 set -eu
-/bin/launchctl bootstrap system /var/jb/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist >/dev/null 2>&1 || true
-/bin/launchctl kickstart -k system/com.iuyghi.lumenboardd >/dev/null 2>&1 || true
-exit 0
+
+LABEL="system/com.iuyghi.lumenboardd"
+PLIST="/var/jb/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist"
+
+# Make postinst repeatable when dpkg reconfigures an already-loaded service.
+if /bin/launchctl print "$LABEL" >/dev/null 2>&1; then
+    /bin/launchctl bootout "$LABEL"
+fi
+
+# Do not hide launchd errors: dpkg must report a configuration failure if
+# the rootless daemon cannot be registered or started.
+/bin/launchctl bootstrap system "$PLIST"
+/bin/launchctl kickstart -k "$LABEL"
+
+attempt=0
+while [ "$attempt" -lt 10 ]; do
+    if service_state=$(/bin/launchctl print "$LABEL" 2>&1); then
+        if printf '%s\n' "$service_state" | /usr/bin/grep -Eq '(^|[[:space:]])pid = [1-9][0-9]*([[:space:]]|$)|state = running'; then
+            exit 0
+        fi
+    fi
+    attempt=$((attempt + 1))
+    /bin/sleep 1
+done
+
+echo "LumenBoard: launchd did not report the daemon as running ($LABEL)." >&2
+exit 1

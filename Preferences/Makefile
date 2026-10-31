@@ -13,6 +13,9 @@ LumenBoardPrefs_FRAMEWORKS = UIKit PhotosUI Photos UniformTypeIdentifiers
 LumenBoardPrefs_PRIVATE_FRAMEWORKS = Preferences
 LumenBoardPrefs_CFLAGS = -fobjc-arc -Wall -Wextra
 LumenBoardPrefs_LIBRARIES = z
+# Theos stages root-level Info.plist only when it is declared as a bundle resource.
+# Without it, the installed Preferences bundle has no CFBundleIdentifier metadata.
+LumenBoardPrefs_RESOURCE_FILES = Info.plist
 LumenBoardPrefs_RESOURCE_DIRS = Resources
 
 include $(THEOS_MAKE_PATH)/bundle.mk

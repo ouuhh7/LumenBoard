@@ -1,5 +1,11 @@
 #!/bin/sh
 set -eu
-/bin/launchctl bootout system/com.iuyghi.lumenboardd >/dev/null 2>&1 || true
-/usr/bin/killall lumenboardd >/dev/null 2>&1 || true
+
+LABEL="system/com.iuyghi.lumenboardd"
+
+# bootout stops the job and its process. Ignore only the already-absent case.
+if /bin/launchctl print "$LABEL" >/dev/null 2>&1; then
+    /bin/launchctl bootout "$LABEL"
+fi
+
 exit 0
