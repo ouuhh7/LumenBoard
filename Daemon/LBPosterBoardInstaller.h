@@ -17,6 +17,13 @@ NS_ASSUME_NONNULL_BEGIN
                                                    descriptorRoot:(NSString *)descriptorRoot
                                                              error:(NSError * _Nullable * _Nullable)error;
 
+/// Read-only verification of previously published descriptor UUIDs in the live
+/// PosterBoard Collections store. This verifies filesystem registration only;
+/// it cannot prove native gallery visibility or wallpaper application.
++ (nullable NSDictionary *)verifyRegisteredDescriptorIdentifiers:(NSArray<NSString *> *)identifiers
+                                             posterBoardContainer:(NSString *)containerPath
+                                                             error:(NSError * _Nullable * _Nullable)error;
+
 /// Resolves the PosterBoard app data container using its MCM metadata identifier.
 + (nullable NSString *)findPosterBoardContainer:(NSError * _Nullable * _Nullable)error;
 
