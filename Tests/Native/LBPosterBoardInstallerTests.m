@@ -3,6 +3,7 @@
 #import <sys/stat.h>
 #import <unistd.h>
 #import <signal.h>
+#import <sys/wait.h>
 #import <errno.h>
 
 static pid_t LBTestWaitPIDFailureAfterReap(pid_t pid, int *status, int options) {
