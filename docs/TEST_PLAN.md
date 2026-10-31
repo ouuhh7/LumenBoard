@@ -20,6 +20,8 @@ On the iPhone X running iOS 16.7.16 with the exact Dopamine/RootHide build:
 3. Confirm `launchctl print user/foreground/com.iuyghi.lumenboardd` shows the daemon. Inspect `/var/mobile/Library/Logs/LumenBoard-daemon.log` if it does not.
 4. Open Settings > LumenBoard and import a small, known-good descriptor-format `.tendies` fixture.
 5. Confirm the managed manifest progresses from validation to registration and the daemon completion record reports descriptor publication.
+6. Re-import the exact same `.tendies` archive. LumenBoard must not publish duplicates; it must run the read-only live-store verifier against the previously recorded UUIDs and report complete, partial, missing, or structurally invalid records.
+7. A `complete` filesystem result proves only that the expected descriptor directories and required plist/CAML structure are present in the Collections store. It does not prove PosterBoard gallery visibility, selectability, preview loading, or wallpaper application; verify those manually on the device.
 6. Confirm the descriptor appears in native PosterBoard Collections, opens in preview, is selectable, and actually renders on Lock Screen and Home Screen.
 7. Reboot/respring and verify both wallpaper persistence and daemon relaunch.
 8. Run dpkg configure/upgrade again to exercise the already-bootstrapped path; it must not fail or create duplicate service instances.
