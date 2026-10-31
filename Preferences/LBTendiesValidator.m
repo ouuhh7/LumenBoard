@@ -152,7 +152,7 @@ static NSData *LBTProcessMember(const uint8_t *input, NSUInteger inputLength, NS
             NSString *descendantPrefix=[key stringByAppendingString:@"/"];
             BOOL hasDescendant=NO;
             for(NSString *prior in keys) if([prior hasPrefix:descendantPrefix]){hasDescendant=YES;break;}
-            if(hasDescendant && us==0 && cs==0){
+            if(hasDescendant && us==0){
                 // An empty entry that already has descendants is a directory
                 // regardless of missing ZIP directory metadata.
                 dir=YES;
@@ -164,7 +164,7 @@ static NSData *LBTProcessMember(const uint8_t *input, NSUInteger inputLength, NS
             }
         }
         [keys addObject:key];
-        pathKinds[key]=@(dir?1:((us==0&&cs==0)?2:0));
+        pathKinds[key]=@(dir?1:(us==0?2:0));
         if(kind==0120000||(kind&&kind!=0100000&&kind!=0040000)){if(error)*error=LBTMakeError(15,@"Symlink or special entry rejected");return @{@"status":@"invalid",@"errors":@[@"Symlink or special entry"]};}
         if(flags&(1|0x40|0x2000)){if(error)*error=LBTMakeError(16,@"Encrypted entries unsupported");return @{@"status":@"unsupported",@"errors":@[@"Encrypted archive"]};}
         if(method!=0&&method!=8){if(error)*error=LBTMakeError(17,@"Unsupported compression method");return @{@"status":@"unsupported",@"errors":@[@"Unsupported compression"]};}
@@ -211,7 +211,15 @@ static NSData *LBTProcessMember(const uint8_t *input, NSUInteger inputLength, NS
         if(recordEnd>cdOffset){if(error)*error=LBTMakeError(78,@"Local record overlaps central directory");return @{@"status":@"invalid",@"errors":@[@"Record overlaps central directory"]};}
         e.localHeaderSize=30+(uint64_t)ln+le;e.dataOffset=data;e.descriptorSize=descriptorSize;e.recordEnd=recordEnd;
         [occupiedRanges addObject:[NSValue valueWithRange:NSMakeRange(p,recordEnd-p)]];
-        if(e.directory){if(e.compressed||e.uncompressed){if(error)*error=LBTMakeError(79,@"Directory entry contains file data");return @{@"status":@"invalid",@"errors":@[@"Non-empty directory entry"]};}continue;}
+        if(e.directory){
+            // Empty directory entries may themselves be DEFLATE-compressed (for
+            // example, a 2-byte raw DEFLATE stream with zero uncompressed bytes).
+            // Verify the stream and CRC instead of requiring compressedSize == 0.
+            NSError *directoryError=nil;
+            NSData *directoryPayload=LBTProcessMember(b+data,e.compressed,e.uncompressed,e.method,e.crc,-1,NO,&directoryError);
+            if(!directoryPayload || directoryPayload.length!=0){if(error)*error=directoryError?:LBTMakeError(79,@"Directory entry contains file data");return @{@"status":@"invalid",@"errors":@[directoryError.localizedDescription?:@"Non-empty directory entry"]};}
+            continue;
+        }
         BOOL isPlist=[e.name.pathExtension.lowercaseString isEqualToString:@"plist"];
         NSError *decodeError=nil;
         NSData *plain=LBTProcessMember(b+data,e.compressed,e.uncompressed,e.method,e.crc,-1,isPlist,&decodeError);
