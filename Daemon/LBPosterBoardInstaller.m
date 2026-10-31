@@ -607,6 +607,7 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
         }
         final[@"refreshWarning"] = [NSString stringWithFormat:@"%@ Descriptor files remain published; the refresh flags are %@. A device restart or manual PosterBoard restart may be required.", detail, preferencesWritten ? @"written" : @"not confirmed"];
     }
+    return final;
 }
 
 + (NSDictionary *)installExtractedDescriptorTreeAtPath:(NSString *)extractedPath descriptorRoot:(NSString *)descriptorRoot error:(NSError **)error {
