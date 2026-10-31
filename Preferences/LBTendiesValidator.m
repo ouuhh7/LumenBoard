@@ -135,20 +135,36 @@ static NSData *LBTProcessMember(const uint8_t *input, NSUInteger inputLength, NS
         for(NSUInteger componentIndex=0;componentIndex+1<components.count;componentIndex++){
             if(ancestor.length)[ancestor appendString:@"/"];
             [ancestor appendString:components[componentIndex]];
-            NSNumber *ancestorIsDirectory=pathKinds[ancestor];
-            if(ancestorIsDirectory && !ancestorIsDirectory.boolValue){
+            NSNumber *ancestorKind=pathKinds[ancestor];
+            if(ancestorKind && ancestorKind.integerValue==0){
                 if(error)*error=LBTMakeError(14,[NSString stringWithFormat:@"File/directory path collision: '%@' is nested under file '%@'",key,ancestor]);
                 return @{@"status":@"invalid",@"errors":@[@"Path collision"]};
+            }
+            // Some ZIP writers encode directory records as zero-byte regular
+            // entries with no Unix/DOS directory attributes and no trailing '/'.
+            // Promote such an entry only when a descendant proves it is a folder.
+            if(ancestorKind && ancestorKind.integerValue==2){
+                pathKinds[ancestor]=@1;
+                for(LBTEntry *priorEntry in entries) if([priorEntry.key isEqualToString:ancestor]) priorEntry.directory=YES;
             }
         }
         if(!dir){
             NSString *descendantPrefix=[key stringByAppendingString:@"/"];
-            for(NSString *prior in keys) if([prior hasPrefix:descendantPrefix]){
-                if(error)*error=LBTMakeError(14,[NSString stringWithFormat:@"File/directory path collision: file '%@' conflicts with descendant '%@'",key,prior]);
-                return @{@"status":@"invalid",@"errors":@[@"Path collision"]};
+            BOOL hasDescendant=NO;
+            for(NSString *prior in keys) if([prior hasPrefix:descendantPrefix]){hasDescendant=YES;break;}
+            if(hasDescendant && us==0 && cs==0){
+                // An empty entry that already has descendants is a directory
+                // regardless of missing ZIP directory metadata.
+                dir=YES;
+            }else if(hasDescendant){
+                for(NSString *prior in keys) if([prior hasPrefix:descendantPrefix]){
+                    if(error)*error=LBTMakeError(14,[NSString stringWithFormat:@"File/directory path collision: file '%@' conflicts with descendant '%@'",key,prior]);
+                    return @{@"status":@"invalid",@"errors":@[@"Path collision"]};
+                }
             }
         }
-        [keys addObject:key]; pathKinds[key]=@(dir);
+        [keys addObject:key];
+        pathKinds[key]=@(dir?1:((us==0&&cs==0)?2:0));
         if(kind==0120000||(kind&&kind!=0100000&&kind!=0040000)){if(error)*error=LBTMakeError(15,@"Symlink or special entry rejected");return @{@"status":@"invalid",@"errors":@[@"Symlink or special entry"]};}
         if(flags&(1|0x40|0x2000)){if(error)*error=LBTMakeError(16,@"Encrypted entries unsupported");return @{@"status":@"unsupported",@"errors":@[@"Encrypted archive"]};}
         if(method!=0&&method!=8){if(error)*error=LBTMakeError(17,@"Unsupported compression method");return @{@"status":@"unsupported",@"errors":@[@"Unsupported compression"]};}
