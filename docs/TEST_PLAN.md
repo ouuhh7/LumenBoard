@@ -46,3 +46,10 @@ A successful compile or DEB creation is a packaging check only. It is not eviden
 - Do not launch the PosterBoard restart command if refresh preferences were not written and ownership-verified.
 - Persist structured diagnostics for preference write/ownership, `posix_spawn`, `waitpid`, command exit status, and termination signal. A successful descriptor publication must remain distinct from a successful PosterBoard process refresh.
 - On-device, inspect the returned diagnostic fields before deciding whether a restart is needed. Do not claim gallery visibility or wallpaper application from a successful process signal.
+
+
+## Current 0.1.0-15 refresh regression coverage
+
+The native XCTest suite now exercises the shared refresh process runner with temporary executable fixtures: ordered fallback selection, all candidates missing (ENOENT), spawn failure from a missing script interpreter, non-zero child exit, signal termination, and a timeout that sends SIGKILL and reaps the child. The portable contract test additionally guards the 15-second production timeout, both refresh call sites, waitpid(WNOHANG), EINTR, exit/signal distinctions, and the version contract across Debian control, Preferences CFBundleVersion, the build helper and CI workflow.
+
+These tests validate process-management behavior on macOS, not the presence of any particular killall binary or the effect of killing PosterBoard on iOS 16.7.16. The exact process restart behavior remains a device-only check.
