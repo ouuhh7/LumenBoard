@@ -1,44 +1,54 @@
-# LumenBoard architecture (reviewed baseline 0.1.0-1)
+# LumenBoard architecture — packaged implementation
+
+## Runtime components
 
 ```text
-PreferenceLoader pane (mobile user; the only component in the package)
-  ├─ PHPicker: image/video source selection
-  ├─ UIDocumentPicker: .tendies source selection
-  ├─ local source directory + manifest.plist
-  └─ list/remove items from the local source library only
+PreferenceLoader pane (foreground mobile user)
+  ├─ imports .tendies through UIDocumentPicker
+  ├─ stores source archive + manifest under mobile Application Support
+  ├─ writes bounded request plist into Requests/
+  └─ polls Completed/ and reports registration state
 
-Developer-only Python utility
-  └─ inspects/extracts descriptor-format ZIP packages with bounded resources
-
-Not packaged or running yet:
-  └─ Daemon/main.m + launchd/control-script prototypes
-     retained for review, not launched while native PosterBoard writes are disabled
+launchd user/foreground/com.iuyghi.lumenboardd
+  └─ /var/jb/usr/libexec/lumenboardd
+       ├─ watches Darwin notification and polls request queue
+       ├─ validates managed source identity + SHA-256
+       ├─ discovers PosterBoard container by MCMMetadataIdentifier
+       ├─ validates/extracts descriptor archive
+       ├─ rewrites descriptor identifiers and stages trees
+       └─ publishes new UUID directories into CollectionsPoster/59
 ```
 
-## Local storage schema
+## Package and launchd contract
 
-`/var/mobile/Library/Application Support/LumenBoard/`
+- Package: `com.iuyghi.lumenboard`
+- Current candidate: `0.1.0-6`
+- Debian architecture: `iphoneos-arm64`
+- Target: iOS 16.x, PosterBoard store structure 59, Collections extension
+- Daemon: `/var/jb/usr/libexec/lumenboardd`
+- LaunchDaemon plist: `/var/jb/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist`
+- Service identifier: `user/foreground/com.iuyghi.lumenboardd`
 
-- `Library/<UUID>/source.<ext>` — original imported media or `.tendies` file.
-- `Library/<UUID>/manifest.plist` — schema version, generated item ID, source filename/type/size, import timestamp and status.
-- `Requests/<request UUID>.plist` — reserved for a future daemon IPC implementation; no request producer exists in the current pane.
-- `Completed/<request UUID>.plist` — reserved for a future daemon IPC implementation.
+The foreground user domain is intentional for Dopamine rootless. `postinst` accepts an already-registered service only when launchctl returns status 37 and includes the `service already bootstrapped` diagnostic. It then requests `kickstart`. A successful kickstart means launchd accepted the request; it does not prove the daemon remained alive or completed an import.
 
-## Privilege model
+## IPC and local source storage
 
-The shipped baseline has no privileged daemon. All currently exposed operations are local source import, listing, and removal under the mobile user's library. A future native adapter may need privilege to modify PosterBoard's app-container descriptor store, but that necessity alone is not sufficient justification to ship a root service before its trust boundary and behavior are verified.
+`/var/mobile/Library/Application Support/LumenBoard/` contains `Library/<UUID>/source.tendies` and `manifest.plist`, `Requests/<request UUID>.plist`, and `Completed/<request UUID>.plist`.
 
-`Daemon/main.m` and the corresponding launchd/control scripts are prototypes under `docs/prototypes/` (except `Daemon/main.m`, which remains a source-only prototype). They are not built, staged, or run. The earlier daemon scaffold accepted a mobile-writable queue and used path-based directory operations; before shipping it, replace these with hardened directory/file-descriptor operations or otherwise eliminate symlink/TOCTOU exposure, validate request ownership/schema/size, bound queue work, and test the IPC protocol.
+The pane writes a bounded request with a fixed action allowlist. The daemon validates UUID, manifest identity, source filename, size and SHA-256 before processing. There is no arbitrary destination-path IPC action. Requests are serialized under a daemon lock; completion records are written atomically. A pane timeout is represented as queued/pending, not successful installation.
 
-A future IPC contract must validate request IDs, staged files, item ownership and supported actions. No generic `write(path, data)` or arbitrary destination-path IPC is acceptable.
+## Descriptor publication
 
-## Required integration steps
+The native installer targets `Library/Application Support/PRBPosterExtensionDataStore/59/Extensions/com.apple.WallpaperKit.CollectionsPoster/descriptors` inside the discovered PosterBoard app container. It validates descriptor roots and required metadata, rejects unsafe filesystem objects, assigns new UUID directory names and collision-checked numeric wallpaper identifiers, rewrites linked identifier fields, stages complete trees, and publishes by rename. Rollback is restricted to paths successfully published by the current invocation.
 
-1. Obtain a known-good iOS 16 descriptor-format `.tendies` fixture and document its complete tree and plist schema.
-2. Add an on-device-safe archive parser/extractor equivalent in safety to the developer Python utility; the pane does not call Python.
-3. Implement an internal descriptor builder against that fixture, including CAML and binary plist generation.
-4. Randomize descriptor UUIDs and numeric wallpaper IDs, updating linked plist/text references atomically.
-5. Stage all generated files outside the live descriptor root, verify the output tree, then install into the discovered `59/.../descriptors` target.
-6. Track exactly which descriptor IDs LumenBoard created so removal cannot delete stock or third-party wallpapers.
-7. Only add a privileged daemon after auditing the IPC protocol and path handling. Refresh/relaunch PosterBoard only after successful atomic installation and only with a rollback plan.
-8. Enable the UI apply/remove action only after real-device tests pass.
+After publication, the implementation requests a PosterBoard refresh. This is separate from successful filesystem publication. UI status `registered-unverified` means descriptor records were published; it does not mean the item appeared in Collections, was selectable, or was applied as wallpaper.
+
+## Known limitations and evidence gates
+
+- Automated XCTest runs on macOS with synthetic fixtures; it does not reproduce iOS launchd, actual container permissions, or PosterBoard rendering.
+- Package CI validates Debian metadata/archive, rootless paths, Mach-O architecture/signatures, Preferences bundle metadata, launchd plist, and maintainer-script behavior using a fake launchctl.
+- Device evidence is still required for dpkg configuration, daemon survival, successful `.tendies` import, native gallery visibility, selection, wallpaper rendering, and persistence after reboot.
+- Photo/video source import exists, but full conversion into PosterBoard animation descriptors is not claimed.
+- Removing a source from LumenBoard's local library does not remove its published PosterBoard descriptor. Safe descriptor cleanup requires a separate ownership index and rollback-safe implementation.
+
+Do not describe the package as fully working until all device-only evidence gates pass.

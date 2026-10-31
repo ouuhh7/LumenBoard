@@ -1,30 +1,18 @@
-# LumenBoard — fresh development baseline
+# LumenBoard — rootless iOS 16 PosterBoard importer
 
-LumenBoard is a new, independent rootless-jailbreak project intended to manage photo, video and `.tendies` sources for the native PosterBoard gallery on iOS 16. The source tree in this package was created independently; it does not import an old LumenBoard checkout, Git bundle, workspace or history.
+LumenBoard is a rootless jailbreak package targeting arm64 iOS 16, including iPhone X / iOS 16.7.16. The current package includes a PreferenceLoader pane, native `.tendies` validation, a launchd-managed daemon, and a descriptor publisher for the iOS 16 Collections PosterBoard store.
 
-## Status of this baseline
+## Current status
 
-This is a **pre-integration development baseline**, not a finished wallpaper installer.
+Package version under validation: `0.1.0-6` (`iphoneos-arm64`). The package compiles the Preferences bundle and `lumenboardd`; the daemon is staged at `/var/jb/usr/libexec/lumenboardd` and registered through `/var/jb/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist` in Dopamine's `user/foreground` launchd domain.
 
-Implemented in this tree:
+The Preferences pane stores photo/video selections as local source imports. `.tendies` archives are copied into the managed library, validated, submitted to the daemon, and—when accepted—published as descriptor records into the iOS 16 Collections store. The UI distinguishes descriptor publication from confirmed gallery visibility, selection, and wallpaper application.
 
-- A new Theos/rootless package skeleton for `arm64` and `arm64e`; the Debian package architecture is `iphoneos-arm64`.
-- A Preferences pane that imports local image/video/`.tendies` files into a managed library and can remove those library items. File copies run off the UI thread; unknown media extensions are rejected rather than relabelled.
-- A privileged daemon source prototype in `Daemon/main.m`, deliberately **not built or packaged** in this baseline. It is not needed for local source management, and enabling root would be premature before the IPC trust boundary is hardened and the native descriptor adapter is tested.
-- A portable Python `.tendies` inspector that checks ZIP structure, path traversal, symlinks/special entries, duplicate paths, resource limits and descriptor-vs-container format. It can extract a structurally verified descriptor package into an empty destination. Its tests use synthetic packages, not a known-good wallpaper from a real iOS 16 device.
-- A read-only descriptor consistency checker, an offline static-image template transformer, and a full offline static-image descriptor candidate generator. The generator creates the whole source-derived tree, validates IDs and file references, stages output and atomically publishes a new candidate. Without a verified real iOS 16 fixture, it is not evidence of PosterBoard compatibility.
-- Documentation of the PosterForge implementation study and device validation plan.
+The package has passed native XCTest and rootless package validation in earlier CI runs. Version `0.1.0-6` adds maintainer-script regression tests and strict handling of launchctl's already-bootstrapped status. CI success does not prove installation or PosterBoard rendering on the target iPhone. Device validation remains mandatory.
 
-Not yet implemented/claimed:
+Not claimed: a complete photo/video-to-CAML conversion pipeline, safe native removal of published descriptors, or verified wallpaper rendering on iOS 16.7.16. Removing a source from LumenBoard's local library does not remove an already-published PosterBoard descriptor.
 
-- Runtime validation of `.tendies` inside the iOS pane. The Python inspector is developer-only and is not invoked by the pane.
-- Generated image/video CAML and PosterBoard descriptors in the app.
-- Automatic native gallery installation/removal.
-- Successful Theos compilation, DEB creation, installation or iPhone testing.
-
-The native writer intentionally remains disabled. The daemon and its launchd/control scripts are stored as prototypes under `docs/prototypes/`; they are not installed or run by the current package. The existence of a descriptor schema in public code is not proof that a newly generated wallpaper will render on iOS 16.7.16 with the exact Dopamine/RootHide build installed on the device.
-
-## Requirements for an actual iOS package build
+## Build and package requirements
 
 - A supported Theos environment: macOS with Xcode/iOS SDK, or Linux with the official Theos cross-toolchain and a suitable iOS SDK (the public Theos SDK repository includes iOS 16.5),
 - Theos configured in `THEOS`,
@@ -68,7 +56,7 @@ The inspector is a development/test utility; the Preferences app does not shell 
 
 ## Repository/publication status
 
-No GitHub repository was created and no push was made. This is a local fresh project tree for review first.
+Development is maintained in the private GitHub repository `ouuhh7/LumenBoard`; active fixes are isolated on `fix/rootless-deb-installation`. The default branch is not modified.
 
 ## Descriptor consistency checker
 

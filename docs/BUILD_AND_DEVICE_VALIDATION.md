@@ -1,29 +1,42 @@
-# Build blockers and validation record
+# Build, package, and device validation
 
-Environment inspected while preparing the fresh baseline:
+## Latest candidate
 
-- Host: Linux container, Python 3.13.5, Git 2.47.3.
-- `THEOS` is not configured.
-- `xcrun` and an Apple iOS SDK are not available in this environment.
-- Direct outbound network access from the build container failed DNS resolution; public research was performed with browser search instead.
-- No physical iPhone or Dopamine/RootHide runtime is attached to this environment.
+- Package: `com.iuyghi.lumenboard`
+- Version: `0.1.0-6`
+- Architecture: `iphoneos-arm64`
+- Branch: `fix/rootless-deb-installation`
+- CI: native XCTest + rootless package build/verification + maintainer-script regression tests
 
-Consequences:
+CI validation covers compilation, unit tests, Debian archive and metadata, rootless paths, Mach-O arm64 architecture/signatures, bundle Info.plist, launchd plist, and the maintainer scripts. It does not prove installation on Dopamine or PosterBoard rendering.
 
-- Theos packaging was not run.
-- The package metadata was corrected to `Architecture: iphoneos-arm64` for the rootless scheme. The privileged daemon and maintainer scripts are retained as prototypes and are not part of the current package.
-- No DEB was built, installed or signed.
-- No PosterBoard runtime behavior was exercised.
-- No GitHub repository was created and nothing was pushed.
+## Device validation still required
 
-After Theos + an iOS SDK are available, run `make clean package FINALPACKAGE=1`; retain the full compiler log and package hash. Then perform the device test plan in `TEST_PLAN.md`. Do not enable native install merely because compilation succeeds.
+1. Confirm dpkg reaches configured state without maintainer-script errors.
+2. Confirm `launchctl print user/foreground/com.iuyghi.lumenboardd` shows the expected service and inspect `/var/mobile/Library/Logs/LumenBoard-daemon.log`.
+3. Import a known-good descriptor-format `.tendies` fixture from Settings > LumenBoard.
+4. Confirm the daemon writes a successful completion and the UI reports descriptor publication, not verified application.
+5. Confirm the item appears in native PosterBoard Collections, opens in preview, can be selected, and renders on Lock Screen/Home Screen.
+6. Reboot/respring and verify persistence and daemon relaunch.
+7. Test repeated dpkg configure/upgrade and package removal. Verify removal stops the daemon without deleting user wallpaper data or unrelated PosterBoard descriptors.
 
+Capture dpkg output, launchctl print output, daemon log, the managed item manifest, and screenshots of Collections/preview/applied wallpaper. Redact device identifiers before sharing logs.
 
-## Current portable test results
+## Evidence boundary
 
-The original suite of 18 tests passed when re-run at the start of the review. The original inspector/package-contract suite passes 29 tests: 25 archive-safety tests and 4 static package-contract checks. The subsequent static-image engine phase adds 16 tests; the combined current suite passes 45 tests. New cases cover malformed or absent Wallpaper.plist data, plist size limits, Unicode-normalized aliases, file/directory conflicts and CRC corruption. The archive fixtures are synthetic; no real `.tendies` archive was available, and the tests do not validate PosterBoard rendering.
+- Previous CI run for version `0.1.0-5`: 39 native XCTest cases passed; rootless package artifact independently extracted and hashed.
+- Version `0.1.0-6`: adds shell regression coverage for fresh bootstrap, repeated configure with launchctl status 37, rejection of misleading status 5, bootstrap failure, kickstart failure, and idempotent prerm behavior. Await the CI result for this exact commit before treating the candidate as validated.
+- Device: user-reported installs of `0.1.0-3` and `0.1.0-4` failed in maintainer scripts. The `0.1.0-6` change addresses the observed already-bootstrapped case but still requires target-device testing.
+- PosterBoard: gallery visibility and rendering remain unverified.
 
+## Local build
 
-## Static-image engine prototype
+On a supported Theos/macOS environment:
 
-See `STATIC_IMAGE_ENGINE.md` and `ENGINE_PHASE_REPORT.md`. The current tool is a template-preserving replacement utility that requires a known-good `.wallpaper` bundle; it is not a descriptor synthesizer or installer. No real iOS 16 fixture is currently available, so only synthetic tests have been run.
+```sh
+make clean package FINALPACKAGE=1
+dpkg-deb --info packages/*.deb
+dpkg-deb --contents packages/*.deb
+```
+
+Treat every artifact as a candidate until the device validation sequence passes.
