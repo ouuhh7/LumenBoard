@@ -62,7 +62,7 @@ class NativeMediaPipelineContractTests(unittest.TestCase):
     def test_refresh_process_wait_is_bounded_and_reports_all_terminal_states(self):
         source = (ROOT / "Daemon/LBPosterBoardInstaller.m").read_text()
         for token in (
-            "waitpid(pid, &status, WNOHANG)",
+            "waitFunction(pid, &status, WNOHANG)",
             "errno == EINTR",
             "WIFEXITED(status)",
             "WIFSIGNALED(status)",
@@ -72,6 +72,7 @@ class NativeMediaPipelineContractTests(unittest.TestCase):
             "refreshProcessTerminationSignal",
             "childReaped",
             "errno == ECHILD",
+            "return waitpid(pid, status, options)",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, source)
