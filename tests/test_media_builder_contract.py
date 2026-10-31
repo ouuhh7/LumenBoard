@@ -52,7 +52,7 @@ class NativeMediaPipelineContractTests(unittest.TestCase):
         self.assertLess(rootless_bin, stock_usr)
         self.assertLess(stock_usr, stock_bin)
         self.assertIn("access(candidate.fileSystemRepresentation, X_OK) == 0", source)
-        self.assertEqual(source.count("LBResolveKillallExecutable()"), 3)
+        self.assertEqual(source.count("LBResolveKillallExecutable()"), 4)
 
     def test_timed_out_media_generation_is_reconciled(self):
         source = (ROOT / "Preferences/LBRootListController.m").read_text()
