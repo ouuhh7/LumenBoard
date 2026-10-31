@@ -81,10 +81,21 @@ if [[ ! -f "$info_plist" ]]; then
   echo "ERROR: missing required Preferences bundle Info.plist: $info_plist" >&2
   exit 14
 fi
-grep -Fq 'CFBundleIdentifier = com.iuyghi.lumenboard.preferences;' "$info_plist"
-grep -Fq 'CFBundleExecutable = LumenBoardPrefs;' "$info_plist"
-grep -Fq 'CFBundlePackageType = BNDL;' "$info_plist"
-grep -Fq 'CFBundleVersion = "15";' "$info_plist"
+python3 - "$info_plist" <<'PY'
+import plistlib, sys
+with open(sys.argv[1], "rb") as stream:
+    info = plistlib.load(stream)
+expected = {
+    "CFBundleIdentifier": "com.iuyghi.lumenboard.preferences",
+    "CFBundleExecutable": "LumenBoardPrefs",
+    "CFBundlePackageType": "BNDL",
+    "CFBundleVersion": "15",
+    "NSPrincipalClass": "LumenBoardRootListController",
+}
+for key, value in expected.items():
+    if info.get(key) != value:
+        raise SystemExit(f"ERROR: Preferences Info.plist {key} must be {value!r}, got {info.get(key)!r}")
+PY
 
 daemon="$stage/var/jb/usr/libexec/lumenboardd"
 if [[ ! -x "$daemon" ]] || ! file "$daemon" | grep -Eiq 'Mach-O.*arm64'; then
