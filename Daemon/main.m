@@ -43,6 +43,18 @@ static NSString *LBSHA256(NSString *path) {
     return result;
 }
 
+static BOOL LBEnsureMobileOwnership(NSString *path) {
+    struct passwd *mobile = getpwnam("mobile");
+    if (!mobile) return geteuid() != 0;
+    struct stat st;
+    if (lstat(path.fileSystemRepresentation, &st) != 0 || S_ISLNK(st.st_mode)) return NO;
+    if (st.st_uid == mobile->pw_uid && st.st_gid == mobile->pw_gid) return YES;
+    // The service runs in Dopamine's user/foreground domain (mobile). It may
+    // publish files it already owns, but must never assume it has root chown rights.
+    if (geteuid() != 0) return NO;
+    return chown(path.fileSystemRepresentation, mobile->pw_uid, mobile->pw_gid) == 0;
+}
+
 static BOOL LBWriteCompletion(NSString *requestID, NSDictionary *payload) {
     if (!LBValidUUID(requestID)) return NO;
     NSString *destination = [LBCompletedPath() stringByAppendingPathComponent:[requestID stringByAppendingPathExtension:@"plist"]];
@@ -50,13 +62,15 @@ static BOOL LBWriteCompletion(NSString *requestID, NSDictionary *payload) {
     if (data.length == 0) return NO;
     NSString *temporary = [destination stringByAppendingFormat:@".%@.tmp", NSUUID.UUID.UUIDString.lowercaseString];
     if (![data writeToFile:temporary options:NSDataWritingAtomic error:nil]) return NO;
+    if (!LBEnsureMobileOwnership(temporary)) {
+        unlink(temporary.fileSystemRepresentation);
+        return NO;
+    }
     chmod(temporary.fileSystemRepresentation, 0600);
     if (rename(temporary.fileSystemRepresentation, destination.fileSystemRepresentation) != 0) {
         unlink(temporary.fileSystemRepresentation);
         return NO;
     }
-    struct passwd *mobile = getpwnam("mobile");
-    if (mobile && chown(destination.fileSystemRepresentation, mobile->pw_uid, mobile->pw_gid) != 0) return NO;
     chmod(destination.fileSystemRepresentation, 0600);
     return YES;
 }
@@ -151,8 +165,11 @@ static NSDictionary *LBProcessImportRequest(NSDictionary *request, NSError **err
         result[@"manifestUpdateWarning"] = @"PosterBoard descriptors were installed, but the local manifest could not be updated.";
         return result;
     }
-    struct passwd *mobile = getpwnam("mobile");
-    if (mobile) chown([item[@"manifestPath"] fileSystemRepresentation], mobile->pw_uid, mobile->pw_gid);
+    if (!LBEnsureMobileOwnership(item[@"manifestPath"])) {
+        NSMutableDictionary *result = [report mutableCopy];
+        result[@"manifestUpdateWarning"] = @"Descriptors were published, but the daemon could not verify mobile ownership of the updated manifest.";
+        return result;
+    }
     chmod([item[@"manifestPath"] fileSystemRepresentation], 0600);
     return report;
 }

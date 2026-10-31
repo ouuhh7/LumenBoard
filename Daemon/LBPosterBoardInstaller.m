@@ -74,9 +74,9 @@ static BOOL LBEnsureDirectoryTree(NSString *path, mode_t mode, NSError **error) 
 
 static BOOL LBSetMobileOwnership(NSString *root, NSError **error) {
     struct passwd *mobile = getpwnam("mobile");
-    // XCTest runs on macOS, where there is no mobile account. Allow mode-only
-    // setup for non-root test hosts; the production daemon runs as root and
-    // must resolve the mobile account before publishing into PosterBoard.
+    // XCTest hosts do not have an iOS mobile account. Production runs in
+    // user/foreground as mobile; files created there should already be owned
+    // by mobile. Only a root process may repair a mismatched owner/group.
     if (!mobile && geteuid() == 0) {
         if (error) *error = LBInstallError(11, @"The mobile user could not be resolved for PosterBoard descriptor ownership.");
         return NO;
@@ -95,8 +95,13 @@ static BOOL LBSetMobileOwnership(NSString *root, NSError **error) {
             return NO;
         }
         mode_t mode = S_ISDIR(st.st_mode) ? 0755 : 0644;
-        if ((mobile && chown(path.fileSystemRepresentation, mobile->pw_uid, mobile->pw_gid) != 0) ||
-            chmod(path.fileSystemRepresentation, mode) != 0) {
+        if (mobile && (st.st_uid != mobile->pw_uid || st.st_gid != mobile->pw_gid)) {
+            if (geteuid() != 0 || chown(path.fileSystemRepresentation, mobile->pw_uid, mobile->pw_gid) != 0) {
+                if (error) *error = LBInstallError(14, @"The daemon does not own the staged descriptor as mobile and cannot change ownership from the user/foreground launchd domain.");
+                return NO;
+            }
+        }
+        if (chmod(path.fileSystemRepresentation, mode) != 0) {
             if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
             return NO;
         }
