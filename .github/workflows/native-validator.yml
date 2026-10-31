@@ -151,6 +151,7 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$INFO")" = "LumenBoardPrefs"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundlePackageType' "$INFO")" = "BNDL"
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSPrincipalClass' "$INFO")" = "LumenBoardRootListController"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$INFO")" = "15"
 
           test -x "$PREFS"
           test -x "$DAEMON"
@@ -210,8 +211,8 @@ jobs:
             echo "Version: $(dpkg-deb -f "$DEB" Version)"
             echo "Architecture: $(dpkg-deb -f "$DEB" Architecture)"
             echo "SHA-256: $(shasum -a 256 "$DEB" | awk '{print $1}')"
-            echo "Scope: archive, metadata, rootless paths, binary architecture, signatures, bundle Info.plist, and control-script syntax verified"
-            echo "Not verified: installation or PosterBoard runtime on iPhone"
+            echo "Scope: archive, metadata, rootless paths, Mach-O architecture and LC_CODE_SIGNATURE load-command presence, bundle Info.plist, and control-script syntax verified"
+            echo "Not verified: cryptographic Mach-O signature validity, entitlements, installation, or PosterBoard runtime on iPhone"
           } | tee package-verification.txt
       - name: Upload package and verification
         uses: actions/upload-artifact@v4
