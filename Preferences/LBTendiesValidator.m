@@ -137,14 +137,14 @@ static NSData *LBTProcessMember(const uint8_t *input, NSUInteger inputLength, NS
             [ancestor appendString:components[componentIndex]];
             NSNumber *ancestorIsDirectory=pathKinds[ancestor];
             if(ancestorIsDirectory && !ancestorIsDirectory.boolValue){
-                if(error)*error=LBTMakeError(14,@"File/directory path collision");
+                if(error)*error=LBTMakeError(14,[NSString stringWithFormat:@"File/directory path collision: '%@' is nested under file '%@'",key,ancestor]);
                 return @{@"status":@"invalid",@"errors":@[@"Path collision"]};
             }
         }
         if(!dir){
             NSString *descendantPrefix=[key stringByAppendingString:@"/"];
             for(NSString *prior in keys) if([prior hasPrefix:descendantPrefix]){
-                if(error)*error=LBTMakeError(14,@"File/directory path collision");
+                if(error)*error=LBTMakeError(14,[NSString stringWithFormat:@"File/directory path collision: file '%@' conflicts with descendant '%@'",key,prior]);
                 return @{@"status":@"invalid",@"errors":@[@"Path collision"]};
             }
         }
