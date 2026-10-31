@@ -85,6 +85,22 @@ class NativeMediaPipelineContractTests(unittest.TestCase):
         self.assertIn(f'Version)" = "{package_version}"', workflow)
         self.assertIn(f'version" != "{package_version}"', helper)
 
+    def test_published_media_manifest_failure_is_reported_as_warning(self):
+        source = (ROOT / "Daemon/main.m").read_text()
+        start = source.index("static NSDictionary *LBProcessMediaInstallRequest")
+        end = source.index("static void LBProcessRequests", start)
+        media_path = source[start:end]
+        self.assertIn('report[@"manifestUpdateWarning"]', media_path)
+        self.assertIn('report[@"posterBoardApplicationState"] = @"unverified"', media_path)
+        self.assertNotIn("if (!manifestData || ![manifestData writeToFile:manifestPath options:NSDataWritingAtomic error:error]) return nil;", media_path)
+
+    def test_published_descriptor_never_claims_gallery_or_wallpaper_application(self):
+        daemon = (ROOT / "Daemon/main.m").read_text()
+        installer = (ROOT / "Daemon/LBPosterBoardInstaller.m").read_text()
+        self.assertIn('@"posterBoardApplicationState" = @"unverified"', daemon)
+        self.assertIn('@"posterBoardApplicationState": @"unverified"', installer)
+        self.assertIn("Native gallery recognition, wallpaper selection, and actual application still require device verification.", (ROOT / "Preferences/LBRootListController.m").read_text())
+
     def test_timed_out_media_generation_is_reconciled(self):
         source = (ROOT / "Preferences/LBRootListController.m").read_text()
         self.assertIn('@"generating"', source)
