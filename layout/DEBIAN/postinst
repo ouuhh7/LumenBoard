@@ -5,32 +5,24 @@ SERVICE="user/foreground/com.iuyghi.lumenboardd"
 PLIST="/var/jb/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist"
 LAUNCHCTL="${LUMENBOARD_LAUNCHCTL:-/bin/launchctl}"
 
-# dpkg may configure an already-registered service. launchd returns 37 in
-# that case; treat only this specific condition as success.
-if bootstrap_output=$("$LAUNCHCTL" bootstrap user/foreground "$PLIST" 2>&1); then
-    :
-else
+# Accept an already-loaded service only for launchctl status 37 and its diagnostic.
+bootstrap_status=0
+bootstrap_output=$("$LAUNCHCTL" bootstrap user/foreground "$PLIST" 2>&1) || bootstrap_status=$?
+if [ "$bootstrap_status" -ne 0 ]; then
+    already_bootstrapped=0
     case "$bootstrap_output" in
-        *"service already bootstrapped"*) ;;
-        *)
-            echo "LumenBoard: launchd bootstrap failed: $bootstrap_output" >&2
-            exit 1
-            ;;
+        *"service already bootstrapped"*) already_bootstrapped=1 ;;
     esac
+    if [ "$bootstrap_status" -ne 37 ] || [ "$already_bootstrapped" -ne 1 ]; then
+        echo "LumenBoard: launchd bootstrap failed (status $bootstrap_status): $bootstrap_output" >&2
+        exit 1
+    fi
 fi
 
+# kickstart success means launchd accepted the request; process startup is asynchronous.
 if ! "$LAUNCHCTL" kickstart -k "$SERVICE"; then
-    echo "LumenBoard: launchd could not start $SERVICE." >&2
+    echo "LumenBoard: launchd rejected the start request for $SERVICE." >&2
     exit 1
 fi
 
-if service_state=$("$LAUNCHCTL" print "$SERVICE" 2>&1); then
-    case "$service_state" in
-        *"state = running"*|*"pid = "[1-9]*)
-            exit 0
-            ;;
-    esac
-fi
-
-echo "LumenBoard: launchd did not report the daemon as running ($SERVICE)." >&2
-exit 1
+exit 0
