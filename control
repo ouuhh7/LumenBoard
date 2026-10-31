@@ -1,8 +1,8 @@
 Package: com.iuyghi.lumenboard
 Name: LumenBoard
-Version: 0.1.0-12
+Version: 0.1.0-13
 Architecture: iphoneos-arm64
-Description: Import descriptor-format Tendies wallpapers into PosterBoard Collections on iOS 16 with a rootless helper daemon.
+Description: Generate and import native image, video, and descriptor-format wallpapers into iOS 16 PosterBoard Collections.
 Maintainer: iuyghi
 Author: iuyghi
 Section: Tweaks
