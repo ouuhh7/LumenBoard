@@ -98,3 +98,6 @@ python3 tools/descriptor_consistency.py /tmp/lb-candidates
 ```
 
 This is structural validation only. A public iOS 16 dump from an iPhone 12 was found as a research lead, but the exact build/native rendering on iOS 16.7.16 and redistribution rights for its Apple assets are not verified; no third-party fixture is included. The generated empty `assetManifest.caml` is an unverified schema choice and must be compared with a real reference. No native PosterBoard write, refresh, import, update or removal is enabled. See `docs/ENGINE_PHASE_REPORT.md` for the fixture search, source attribution and three validation levels.
+
+
+The 0.1.0-12 refresh path avoids an unnecessary `chown` when the PosterBoard preference file is already owned by `mobile`, which is required for the unprivileged `user/foreground` daemon. It also reports the precise preference ownership/write or process-restart failure instead of a generic refresh warning. CI can validate this code path, but only device testing can confirm PosterBoard reload and gallery recognition.
