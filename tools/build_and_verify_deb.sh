@@ -2,14 +2,19 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-: "${THEOS:?Set THEOS to a verified Theos installation (with iOS SDK and Linux iOS toolchain)}"
+: "${THEOS:?Set THEOS to a verified Theos installation with an iOS SDK and a host-compatible toolchain}"
 
 if [[ ! -f "$THEOS/makefiles/common.mk" ]]; then
   echo "ERROR: missing $THEOS/makefiles/common.mk" >&2
   exit 2
 fi
-if [[ ! -x "$THEOS/toolchain/linux/iphone/bin/clang" ]]; then
-  echo "ERROR: missing executable $THEOS/toolchain/linux/iphone/bin/clang; verify Linux iOS toolchain" >&2
+if command -v xcrun >/dev/null 2>&1; then
+  if ! xcrun --find clang >/dev/null 2>&1; then
+    echo "ERROR: Xcode clang is unavailable through xcrun" >&2
+    exit 3
+  fi
+elif [[ ! -x "$THEOS/toolchain/linux/iphone/bin/clang" ]]; then
+  echo "ERROR: neither Xcode clang nor the Theos Linux iOS clang toolchain is available" >&2
   exit 3
 fi
 if ! find "$THEOS/sdks" -maxdepth 1 -type d -name 'iPhoneOS*.sdk' -print -quit 2>/dev/null | grep -q .; then
@@ -36,8 +41,8 @@ dpkg-deb --info "$deb"
 arch="$(dpkg-deb -f "$deb" Architecture)"
 pkg="$(dpkg-deb -f "$deb" Package)"
 version="$(dpkg-deb -f "$deb" Version)"
-if [[ "$version" != "0.1.0-14" ]]; then
-  echo "ERROR: expected package version 0.1.0-14; got '$version'" >&2
+if [[ "$version" != "0.1.0-15" ]]; then
+  echo "ERROR: expected package version 0.1.0-15; got '$version'" >&2
   exit 13
 fi
 if [[ "$arch" != "iphoneos-arm64" ]]; then
