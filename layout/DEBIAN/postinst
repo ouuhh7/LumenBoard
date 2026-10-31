@@ -3,17 +3,28 @@ set -eu
 
 SERVICE="user/foreground/com.iuyghi.lumenboardd"
 PLIST="/var/jb/Library/LaunchDaemons/com.iuyghi.lumenboardd.plist"
+LAUNCHCTL="${LUMENBOARD_LAUNCHCTL:-/bin/launchctl}"
 
-if /bin/launchctl print "$SERVICE" >/dev/null 2>&1; then
-    /bin/launchctl bootout "$SERVICE"
+# dpkg may configure an already-registered service. launchd returns 37 in
+# that case; treat only this specific condition as success.
+if bootstrap_output=$("$LAUNCHCTL" bootstrap user/foreground "$PLIST" 2>&1); then
+    :
+else
+    case "$bootstrap_output" in
+        *"service already bootstrapped"*) ;;
+        *)
+            echo "LumenBoard: launchd bootstrap failed: $bootstrap_output" >&2
+            exit 1
+            ;;
+    esac
 fi
 
-# Dopamine rootless services run in the foreground user's launchd domain.
-# Use shell builtins for state inspection; do not depend on external grep/sleep.
-/bin/launchctl bootstrap user/foreground "$PLIST"
-/bin/launchctl kickstart -k "$SERVICE"
+if ! "$LAUNCHCTL" kickstart -k "$SERVICE"; then
+    echo "LumenBoard: launchd could not start $SERVICE." >&2
+    exit 1
+fi
 
-if service_state=$(/bin/launchctl print "$SERVICE" 2>&1); then
+if service_state=$("$LAUNCHCTL" print "$SERVICE" 2>&1); then
     case "$service_state" in
         *"state = running"*|*"pid = "[1-9]*)
             exit 0

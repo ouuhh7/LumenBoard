@@ -2,9 +2,11 @@
 set -eu
 
 SERVICE="user/foreground/com.iuyghi.lumenboardd"
+LAUNCHCTL="${LUMENBOARD_LAUNCHCTL:-/bin/launchctl}"
 
-if /bin/launchctl print "$SERVICE" >/dev/null 2>&1; then
-    /bin/launchctl bootout "$SERVICE"
+# Removal/upgrade is idempotent when the service is already absent.
+if "$LAUNCHCTL" print "$SERVICE" >/dev/null 2>&1; then
+    "$LAUNCHCTL" bootout "$SERVICE" || true
 fi
 
 exit 0
