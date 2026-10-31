@@ -196,38 +196,40 @@ static NSDictionary *LBQueueTendiesImportAndWait(NSString *identifier, NSString 
         return;
     }
     NSArray<NSString *> *entries = [NSFileManager.defaultManager contentsOfDirectoryAtPath:LBLibraryPath() error:&error] ?: @[];
-    NSUInteger imported = 0, registering = 0, failed = 0, stored = 0;
+    NSUInteger registered = 0, registering = 0, failed = 0, stored = 0;
     for (NSString *entry in entries) {
         NSMutableDictionary *manifest = [LBReadManagedManifest(entry) mutableCopy];
         if (!manifest) continue;
         NSString *status = [manifest[@"status"] isKindOfClass:NSString.class] ? manifest[@"status"] : @"unknown";
-        if ([status isEqualToString:@"imported"]) imported++;
-        else if ([status isEqualToString:@"registering"]) registering++;
-        else if ([status isEqualToString:@"failed"] || [status isEqualToString:@"invalid"] || [status isEqualToString:@"unsupported"]) failed++;
-        else stored++;
         NSString *requestID = [manifest[@"daemonRequestID"] isKindOfClass:NSString.class] ? manifest[@"daemonRequestID"] : nil;
         if ([status isEqualToString:@"registering"] && requestID.length) {
             NSString *completionPath = [LBCompletedPath() stringByAppendingPathComponent:[requestID stringByAppendingPathExtension:@"plist"]];
             NSDictionary *completion = [NSDictionary dictionaryWithContentsOfFile:completionPath];
             if ([completion[@"requestID"] isEqualToString:requestID] && [completion[@"finished"] boolValue]) {
                 if ([completion[@"success"] boolValue]) {
-                    manifest[@"status"] = @"imported";
-                    manifest[@"installationState"] = @"installed";
+                    manifest[@"status"] = @"registered-unverified";
+                    manifest[@"installationState"] = @"descriptors-published";
+                    manifest[@"registeredAt"] = [NSDate date];
                     manifest[@"installationReport"] = completion[@"result"] ?: @{};
                 } else {
                     manifest[@"status"] = @"failed";
                     manifest[@"installationState"] = @"failed";
-                    manifest[@"installationError"] = completion[@"error"] ?: @"PosterBoard daemon import failed.";
+                    manifest[@"installationError"] = completion[@"error"] ?: @"PosterBoard descriptor registration failed.";
                 }
                 [manifest removeObjectForKey:@"daemonRequestID"];
                 LBWriteManagedManifest(manifest, [LBLibraryPath() stringByAppendingPathComponent:entry], nil);
                 [NSFileManager.defaultManager removeItemAtPath:completionPath error:nil];
+                status = [manifest[@"status"] isKindOfClass:NSString.class] ? manifest[@"status"] : @"unknown";
             }
         }
+        if ([status isEqualToString:@"registered-unverified"] || [status isEqualToString:@"imported"]) registered++;
+        else if ([status isEqualToString:@"registering"]) registering++;
+        else if ([status isEqualToString:@"failed"] || [status isEqualToString:@"invalid"] || [status isEqualToString:@"unsupported"]) failed++;
+        else stored++;
     }
     [self showMessage:@"LumenBoard library"
-        message:[NSString stringWithFormat:@"PosterBoard applied: %lu\nRegistration pending: %lu\nFailed: %lu\nLocal-only or not yet imported: %lu",
-            (unsigned long)imported, (unsigned long)registering, (unsigned long)failed, (unsigned long)stored]];
+        message:[NSString stringWithFormat:@"Descriptor records registered (PosterBoard visibility and application not device-verified): %lu\nRegistration pending: %lu\nFailed: %lu\nLocal-only or not yet imported: %lu",
+            (unsigned long)registered, (unsigned long)registering, (unsigned long)failed, (unsigned long)stored]];
 }
 
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
@@ -379,14 +381,14 @@ static NSDictionary *LBQueueTendiesImportAndWait(NSString *identifier, NSString 
                                     if ([existing[@"type"] isEqualToString:@"tendies-unvalidated"] &&
                                         [existing[@"sha256"] isKindOfClass:NSString.class] &&
                                         [existing[@"sha256"] caseInsensitiveCompare:sha256] == NSOrderedSame &&
-                                        ([existingStatus isEqualToString:@"imported"] || [existingStatus isEqualToString:@"registering"])) {
+                                        ([existingStatus isEqualToString:@"imported"] || [existingStatus isEqualToString:@"registered-unverified"] || [existingStatus isEqualToString:@"registering"])) {
                                         duplicateHandled = YES;
                                         preserveItemDirectory = NO;
                                         stored = YES;
                                         finalStatus = existingStatus;
-                                        userMessage = [existingStatus isEqualToString:@"imported"] ?
-                                            @"This exact .tendies archive is already registered in PosterBoard. No duplicate wallpaper was created." :
-                                            @"This exact .tendies archive is already being registered. No second registration request was created.";
+                                        userMessage = [existingStatus isEqualToString:@"registering"] ?
+                                            @"This exact .tendies archive is already being registered. No second registration request was created." :
+                                            @"This exact .tendies archive already has descriptor records registered. PosterBoard visibility and wallpaper application have not been verified on this device; no duplicate registration was created.";
                                         break;
                                     }
                                 }
@@ -417,14 +419,16 @@ static NSDictionary *LBQueueTendiesImportAndWait(NSString *identifier, NSString 
                                             NSDictionary *completion = LBQueueTendiesImportAndWait(identifier, &requestID, &daemonError);
                                             if (requestID.length) manifest[@"daemonRequestID"] = requestID;
                                             if (completion && [completion[@"success"] boolValue]) {
-                                                manifest[@"status"] = @"imported";
-                                                manifest[@"installationState"] = @"installed";
+                                                manifest[@"status"] = @"registered-unverified";
+                                                manifest[@"installationState"] = @"descriptors-published";
+                                                manifest[@"registeredAt"] = [NSDate date];
                                                 manifest[@"installationReport"] = completion[@"result"] ?: @{};
                                                 [manifest removeObjectForKey:@"daemonRequestID"];
-                                                finalStatus = @"imported";
+                                                finalStatus = @"registered-unverified";
                                                 stored = YES;
+                                                userMessage = @"The descriptor records were published to the iOS 16 PosterBoard Collections store and a refresh was requested. Native gallery recognition, wallpaper selection, and actual application remain unverified on this device.";
                                                 if ([completion[@"result"][@"refreshWarning"] isKindOfClass:NSString.class]) {
-                                                    userMessage = completion[@"result"][@"refreshWarning"];
+                                                    userMessage = [userMessage stringByAppendingFormat:@"\n\nRefresh warning: %@", completion[@"result"][@"refreshWarning"]];
                                                 }
                                             } else if ([completion[@"timedOut"] boolValue]) {
                                                 manifest[@"status"] = @"registering";
@@ -482,9 +486,9 @@ static NSDictionary *LBQueueTendiesImportAndWait(NSString *identifier, NSString 
         NSString *title = nil;
         NSString *message = nil;
         if ([sourceType isEqualToString:@"tendies-unvalidated"]) {
-            if ([finalStatus isEqualToString:@"imported"]) {
-                title = @"Wallpaper imported";
-                message = userMessage ?: @"The .tendies descriptors were registered in the iOS 16 PosterBoard Collections store. Select the wallpaper from the native Lock Screen gallery.";
+            if ([finalStatus isEqualToString:@"registered-unverified"]) {
+                title = @"Descriptor records registered";
+                message = userMessage ?: @"Descriptor records were published. PosterBoard recognition, gallery visibility, selection, and actual wallpaper application have not been verified on this device.";
             } else if ([finalStatus isEqualToString:@"registering"]) {
                 title = @"Registration queued";
                 message = @"The archive passed validation and extraction. PosterBoard registration is queued; open Refresh local library to check the daemon result.";

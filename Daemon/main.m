@@ -114,9 +114,12 @@ static NSDictionary *LBProcessImportRequest(NSDictionary *request, NSError **err
     // A previous daemon cycle may have completed installation but failed while
     // writing the completion record. Reuse its durable result instead of
     // publishing duplicate descriptors.
-    if ([existingManifest[@"status"] isEqualToString:@"imported"] &&
-        [existingManifest[@"installationState"] isEqualToString:@"installed"] &&
-        [existingManifest[@"installationReport"] isKindOfClass:NSDictionary.class]) {
+    BOOL previouslyPublished =
+        ([existingManifest[@"status"] isEqualToString:@"registered-unverified"] &&
+         [existingManifest[@"installationState"] isEqualToString:@"descriptors-published"]) ||
+        ([existingManifest[@"status"] isEqualToString:@"imported"] &&
+         [existingManifest[@"installationState"] isEqualToString:@"installed"]);
+    if (previouslyPublished && [existingManifest[@"installationReport"] isKindOfClass:NSDictionary.class]) {
         return existingManifest[@"installationReport"];
     }
 
@@ -127,26 +130,31 @@ static NSDictionary *LBProcessImportRequest(NSDictionary *request, NSError **err
         posterBoardContainer:container error:error];
     if (!installation) return nil;
 
+    // "Published" is a filesystem registration result, not proof that PosterBoard
+    // reloaded the store or that the wallpaper is visible/selectable/applied.
+    NSMutableDictionary *report = [installation mutableCopy];
+    report[@"descriptorRegistrationState"] = @"published";
+    report[@"posterBoardApplicationState"] = @"unverified";
     NSMutableDictionary *manifest = [item[@"manifest"] mutableCopy];
-    manifest[@"status"] = @"imported";
-    manifest[@"installationState"] = @"installed";
-    manifest[@"installedAt"] = [NSDate date];
-    manifest[@"installedDescriptorIdentifiers"] = installation[@"installedDescriptorIdentifiers"] ?: @[];
-    manifest[@"installationReport"] = installation;
+    manifest[@"status"] = @"registered-unverified";
+    manifest[@"installationState"] = @"descriptors-published";
+    manifest[@"registeredAt"] = [NSDate date];
+    manifest[@"installedDescriptorIdentifiers"] = report[@"installedDescriptorIdentifiers"] ?: @[];
+    manifest[@"installationReport"] = report;
     NSData *manifestData = [NSPropertyListSerialization dataWithPropertyList:manifest
         format:NSPropertyListBinaryFormat_v1_0 options:0 error:error];
     if (!manifestData || ![manifestData writeToFile:item[@"manifestPath"] options:NSDataWritingAtomic error:error]) {
         // The descriptors are already safely published. Do not remove them because
         // a local manifest write failure must not turn a completed system install into
         // a destructive rollback. The completion tells the UI to report the mismatch.
-        NSMutableDictionary *result = [installation mutableCopy];
+        NSMutableDictionary *result = [report mutableCopy];
         result[@"manifestUpdateWarning"] = @"PosterBoard descriptors were installed, but the local manifest could not be updated.";
         return result;
     }
     struct passwd *mobile = getpwnam("mobile");
     if (mobile) chown([item[@"manifestPath"] fileSystemRepresentation], mobile->pw_uid, mobile->pw_gid);
     chmod([item[@"manifestPath"] fileSystemRepresentation], 0600);
-    return installation;
+    return report;
 }
 
 static void LBProcessRequests(void) {
