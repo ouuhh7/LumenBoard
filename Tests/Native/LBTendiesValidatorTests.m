@@ -7,20 +7,24 @@ static void Append32(NSMutableData *d,uint32_t v){uint8_t b[4]={(uint8_t)v,(uint
 static NSData *StoredZip(NSArray<NSDictionary *> *items, BOOL corruptCRC) {
     NSMutableData *out=[NSMutableData data]; NSMutableArray *records=[NSMutableArray array];
     for(NSDictionary *item in items){
-        NSData *name=[item[@"name"] dataUsingEncoding:NSUTF8StringEncoding],*payload=item[@"data"];
-        uLong crc=crc32(0L,Z_NULL,0);crc=crc32(crc,payload.bytes,(uInt)payload.length);if(corruptCRC)crc^=1;
+        NSData *name=[item[@"name"] dataUsingEncoding:NSUTF8StringEncoding],*plain=item[@"data"];
+        BOOL deflatedEmpty=[item[@"deflatedEmpty"] boolValue];
+        const uint8_t emptyDeflateBytes[2]={0x03,0x00};
+        NSData *payload=deflatedEmpty?[NSData dataWithBytes:emptyDeflateBytes length:2]:plain;
+        uint16_t method=deflatedEmpty?8:0;
+        uLong crc=crc32(0L,Z_NULL,0);crc=crc32(crc,plain.bytes,(uInt)plain.length);if(corruptCRC)crc^=1;
         NSUInteger offset=out.length;
-        Append32(out,0x04034b50);Append16(out,20);Append16(out,0);Append16(out,0);Append16(out,0);Append16(out,0);
-        Append32(out,(uint32_t)crc);Append32(out,(uint32_t)payload.length);Append32(out,(uint32_t)payload.length);
+        Append32(out,0x04034b50);Append16(out,20);Append16(out,0);Append16(out,method);Append16(out,0);Append16(out,0);
+        Append32(out,(uint32_t)crc);Append32(out,(uint32_t)payload.length);Append32(out,(uint32_t)plain.length);
         Append16(out,(uint16_t)name.length);Append16(out,0);[out appendData:name];[out appendData:payload];
         uint32_t external=[item[@"directory"] boolValue] ? ((0040000u|0755u)<<16) : (0100644u<<16);
         if([item[@"directory"] boolValue]) external|=0x10;
-        [records addObject:@{@"name":name,@"crc":@((uint32_t)crc),@"size":@(payload.length),@"offset":@(offset),@"external":@(external)}];
+        [records addObject:@{@"name":name,@"crc":@((uint32_t)crc),@"compressed":@(payload.length),@"size":@(plain.length),@"method":@(method),@"offset":@(offset),@"external":@(external)}];
     }
     NSUInteger centralOffset=out.length;
     for(NSDictionary *r in records){
-        NSData *name=r[@"name"];Append32(out,0x02014b50);Append16(out,20);Append16(out,20);Append16(out,0);Append16(out,0);Append16(out,0);Append16(out,0);
-        Append32(out,[r[@"crc"] unsignedIntValue]);Append32(out,[r[@"size"] unsignedIntValue]);Append32(out,[r[@"size"] unsignedIntValue]);
+        NSData *name=r[@"name"];Append32(out,0x02014b50);Append16(out,20);Append16(out,20);Append16(out,0);Append16(out,[r[@"method"] unsignedShortValue]);Append16(out,0);Append16(out,0);
+        Append32(out,[r[@"crc"] unsignedIntValue]);Append32(out,[r[@"compressed"] unsignedIntValue]);Append32(out,[r[@"size"] unsignedIntValue]);
         Append16(out,(uint16_t)name.length);Append16(out,0);Append16(out,0);Append16(out,0);Append16(out,0);Append32(out,[r[@"external"] unsignedIntValue]);Append32(out,[r[@"offset"] unsignedIntValue]);[out appendData:name];
     }
     NSUInteger centralSize=out.length-centralOffset;
@@ -209,6 +213,21 @@ static NSData *StoredZipWithDescriptor(NSString *entryName, NSData *payload, BOO
     XCTAssertNil(e); XCTAssertEqualObjects(r[@"status"],@"valid");
     [[NSFileManager defaultManager]removeItemAtPath:p error:nil];
 }
+- (void)testAcceptsDeflatedEmptyDirectoryEntriesWithoutAttributes {
+    NSDictionary *wp=@{@"identifier":@1,@"name":@"Synthetic",@"assets":@{}};
+    NSData *plist=[NSPropertyListSerialization dataWithPropertyList:wp format:NSPropertyListXMLFormat_v1_0 options:0 error:nil];
+    NSString *p=[self writeZip:StoredZip(@[
+        @{@"name":@"descriptors",@"data":[NSData data],@"deflatedEmpty":@YES},
+        @{@"name":@"descriptors/fixture",@"data":[NSData data],@"deflatedEmpty":@YES},
+        @{@"name":@"descriptors/fixture/Wallpaper.plist",@"data":plist}
+    ],NO)];
+    NSString *out=[NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSError *e=nil; NSDictionary *r=[LBTendiesValidator validateArchiveAtPath:p extractToPath:out error:&e];
+    XCTAssertNil(e); XCTAssertEqualObjects(r[@"status"],@"extracted");
+    XCTAssertTrue([[NSFileManager defaultManager]fileExistsAtPath:[out stringByAppendingPathComponent:@"descriptors/fixture/Wallpaper.plist"]]);
+    [[NSFileManager defaultManager]removeItemAtPath:p error:nil]; [[NSFileManager defaultManager]removeItemAtPath:out error:nil];
+}
+
 - (void)testRejectsFileUsedAsAncestorOfNestedPath {
     NSData *empty=[NSData data];
     NSString *p=[self writeZip:StoredZip(@[
