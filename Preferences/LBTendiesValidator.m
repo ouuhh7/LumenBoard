@@ -149,8 +149,8 @@ static NSData *LBTProcessMember(const uint8_t *input, NSUInteger inputLength, NS
         if(flags&(1|0x40|0x2000)){if(error)*error=LBTMakeError(16,@"Encrypted entries unsupported");return @{@"status":@"unsupported",@"errors":@[@"Encrypted archive"]};}
         if(method!=0&&method!=8){if(error)*error=LBTMakeError(17,@"Unsupported compression method");return @{@"status":@"unsupported",@"errors":@[@"Unsupported compression"]};}
         if(us>LBTMaxFile||total+us>LBTMaxTotal||(us>0&&(cs==0||(uint64_t)us>(uint64_t)cs*500))){if(error)*error=LBTMakeError(18,@"ZIP bomb/resource bound exceeded");return @{@"status":@"invalid",@"errors":@[@"Decompression limit exceeded"]};}
-        total+=us; NSArray *components=[name.lowercaseString componentsSeparatedByString:@"/"]; if([components containsObject:@"container"])container=YES;
-        if([components containsObject:@"descriptor"]||[components containsObject:@"descriptors"])descriptor=YES;
+        total+=us; NSArray *nameComponents=[name.lowercaseString componentsSeparatedByString:@"/"]; if([nameComponents containsObject:@"container"])container=YES;
+        if([nameComponents containsObject:@"descriptor"]||[nameComponents containsObject:@"descriptors"])descriptor=YES;
         LBTEntry *e=[LBTEntry new];e.name=name;e.key=key;e.flags=flags;e.method=method;e.crc=crc;e.compressed=cs;e.uncompressed=us;e.localOffset=local;e.external=ext;e.directory=dir;[entries addObject:e];cursor+=record;
     }
     if(cursor!=cdOffset+cdSize){if(error)*error=LBTMakeError(19,@"Central directory size mismatch");return @{@"status":@"invalid",@"errors":@[@"Central directory mismatch"]};}
