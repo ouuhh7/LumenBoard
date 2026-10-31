@@ -1,12 +1,26 @@
-{
-    CFBundleDevelopmentRegion = English;
-    CFBundleDisplayName = LumenBoard;
-    CFBundleExecutable = LumenBoardPrefs;
-    CFBundleIdentifier = com.iuyghi.lumenboard.preferences;
-    CFBundleInfoDictionaryVersion = "6.0";
-    CFBundleName = LumenBoardPrefs;
-    CFBundlePackageType = BNDL;
-    CFBundleShortVersionString = "0.1.0";
-    CFBundleVersion = "15";
-    NSPrincipalClass = LumenBoardRootListController;
-}
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>English</string>
+    <key>CFBundleDisplayName</key>
+    <string>LumenBoard</string>
+    <key>CFBundleExecutable</key>
+    <string>LumenBoardPrefs</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.iuyghi.lumenboard.preferences</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>LumenBoardPrefs</string>
+    <key>CFBundlePackageType</key>
+    <string>BNDL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>15</string>
+    <key>NSPrincipalClass</key>
+    <string>LumenBoardRootListController</string>
+</dict>
+</plist>
