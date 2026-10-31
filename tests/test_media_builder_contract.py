@@ -97,7 +97,7 @@ class NativeMediaPipelineContractTests(unittest.TestCase):
     def test_published_descriptor_never_claims_gallery_or_wallpaper_application(self):
         daemon = (ROOT / "Daemon/main.m").read_text()
         installer = (ROOT / "Daemon/LBPosterBoardInstaller.m").read_text()
-        self.assertIn('@"posterBoardApplicationState" = @"unverified"', daemon)
+        self.assertIn('report[@"posterBoardApplicationState"] = @"unverified"', daemon)
         self.assertIn('@"posterBoardApplicationState": @"unverified"', installer)
         self.assertIn("Native gallery recognition, wallpaper selection, and actual application still require device verification.", (ROOT / "Preferences/LBRootListController.m").read_text())
 
