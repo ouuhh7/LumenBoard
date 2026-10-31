@@ -37,3 +37,12 @@ Capture dpkg output, launchctl print output, daemon log, the relevant manifest a
 - iOS 17+ or whole-container `.tendies` import.
 
 A successful compile or DEB creation is a packaging check only. It is not evidence that PosterBoard accepts or renders an installed descriptor.
+
+
+## PosterBoard refresh diagnostics (0.1.0-12)
+
+- Confirm refresh preference ownership is checked with `lstat`; skip `chown` when the file is already owned by `mobile:mobile`.
+- Permit ownership repair only when the daemon effective UID is root; otherwise report `EPERM` with the actual owner and effective UID.
+- Do not launch the PosterBoard restart command if refresh preferences were not written and ownership-verified.
+- Persist structured diagnostics for preference write/ownership, `posix_spawn`, `waitpid`, command exit status, and termination signal. A successful descriptor publication must remain distinct from a successful PosterBoard process refresh.
+- On-device, inspect the returned diagnostic fields before deciding whether a restart is needed. Do not claim gallery visibility or wallpaper application from a successful process signal.
