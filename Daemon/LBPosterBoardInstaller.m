@@ -506,38 +506,107 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
     [NSFileManager.defaultManager removeItemAtPath:stage error:nil];
     if (!result) return nil;
 
-    // PosterBoard reads the descriptor store at process start. Request a controlled
-    // refresh after the complete descriptor set is published.
+    // PosterBoard reads these flags when it next starts. Preserve the existing
+    // preference dictionary and verify ownership without issuing an unnecessary
+    // chown: the production daemon runs in user/foreground as mobile, and an
+    // unprivileged chown can fail even when the file already has the right owner.
     NSString *preferencesPath = [containerPath stringByAppendingPathComponent:@"Library/Preferences/com.apple.PosterBoard.unprotectedUserDefaults.plist"];
     NSMutableDictionary *preferences = [[NSDictionary dictionaryWithContentsOfFile:preferencesPath] mutableCopy] ?: [NSMutableDictionary dictionary];
     preferences[@"PBF_LOCALE_DID_CHANGE"] = @NO;
     preferences[@"PBF_RESET_FILE_PROTECTIONS"] = @YES;
     NSData *preferencesData = [NSPropertyListSerialization dataWithPropertyList:preferences format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil];
+    int preferencesErrno = 0;
     BOOL preferencesWritten = preferencesData && LBWriteDataAtomically(preferencesData, preferencesPath, nil);
+    if (!preferencesWritten) preferencesErrno = errno ?: EIO;
+
     struct passwd *mobile = getpwnam("mobile");
-    if (preferencesWritten && mobile) {
-        if (chown(preferencesPath.fileSystemRepresentation, mobile->pw_uid, mobile->pw_gid) != 0 ||
-            chmod(preferencesPath.fileSystemRepresentation, 0644) != 0) preferencesWritten = NO;
-    } else if (preferencesWritten && geteuid() == 0) {
+    struct stat preferenceStat;
+    if (preferencesWritten && lstat(preferencesPath.fileSystemRepresentation, &preferenceStat) != 0) {
         preferencesWritten = NO;
+        preferencesErrno = errno;
     }
-    int status = 0;
-    char *arguments[] = {"/usr/bin/killall", "-9", "PosterBoard", NULL};
-    pid_t pid = 0;
-    int spawnResult = posix_spawn(&pid, arguments[0], NULL, NULL, arguments, environ);
+    if (preferencesWritten && (!S_ISREG(preferenceStat.st_mode) || S_ISLNK(preferenceStat.st_mode))) {
+        preferencesWritten = NO;
+        preferencesErrno = EINVAL;
+    }
+    if (preferencesWritten && mobile &&
+        (preferenceStat.st_uid != mobile->pw_uid || preferenceStat.st_gid != mobile->pw_gid)) {
+        if (geteuid() == 0) {
+            if (chown(preferencesPath.fileSystemRepresentation, mobile->pw_uid, mobile->pw_gid) != 0) {
+                preferencesWritten = NO;
+                preferencesErrno = errno;
+            }
+        } else {
+            preferencesWritten = NO;
+            preferencesErrno = EPERM;
+        }
+    } else if (preferencesWritten && !mobile && geteuid() == 0) {
+        preferencesWritten = NO;
+        preferencesErrno = ENOENT;
+    }
+    if (preferencesWritten && chmod(preferencesPath.fileSystemRepresentation, 0644) != 0) {
+        preferencesWritten = NO;
+        preferencesErrno = errno;
+    }
+    if (preferencesWritten && mobile) {
+        struct stat verifiedStat;
+        if (lstat(preferencesPath.fileSystemRepresentation, &verifiedStat) != 0 ||
+            verifiedStat.st_uid != mobile->pw_uid || verifiedStat.st_gid != mobile->pw_gid) {
+            preferencesWritten = NO;
+            preferencesErrno = errno ?: EPERM;
+        }
+    }
+
+    int spawnResult = -1;
+    int waitError = 0;
+    int exitStatus = -1;
+    int terminationSignal = 0;
     BOOL refreshRequested = NO;
-    if (spawnResult == 0) {
-        int waitStatus = 0;
-        if (waitpid(pid, &waitStatus, 0) == pid && WIFEXITED(waitStatus)) status = WEXITSTATUS(waitStatus);
-        refreshRequested = (status == 0);
+    if (preferencesWritten) {
+        char *arguments[] = {"/usr/bin/killall", "-9", "PosterBoard", NULL};
+        pid_t pid = 0;
+        spawnResult = posix_spawn(&pid, arguments[0], NULL, NULL, arguments, environ);
+        if (spawnResult == 0) {
+            int waitStatus = 0;
+            pid_t waited;
+            do { waited = waitpid(pid, &waitStatus, 0); } while (waited < 0 && errno == EINTR);
+            if (waited == pid && WIFEXITED(waitStatus)) {
+                exitStatus = WEXITSTATUS(waitStatus);
+                refreshRequested = (exitStatus == 0);
+            } else if (waited == pid && WIFSIGNALED(waitStatus)) {
+                terminationSignal = WTERMSIG(waitStatus);
+            } else {
+                waitError = errno ?: ECHILD;
+            }
+        }
     }
+
     NSMutableDictionary *final = [result mutableCopy];
     final[@"refreshPreferencesWritten"] = @(preferencesWritten);
+    final[@"refreshPreferencesErrno"] = @(preferencesErrno);
+    final[@"refreshPreferencesOwnerUID"] = preferencesWritten ? @(preferenceStat.st_uid) : @(-1);
+    final[@"refreshPreferencesOwnerGID"] = preferencesWritten ? @(preferenceStat.st_gid) : @(-1);
+    final[@"refreshDaemonEffectiveUID"] = @(geteuid());
     final[@"posterBoardRefreshRequested"] = @(refreshRequested);
+    final[@"refreshSpawnResult"] = @(spawnResult);
+    final[@"refreshWaitErrno"] = @(waitError);
+    final[@"refreshProcessExitStatus"] = @(exitStatus);
+    final[@"refreshProcessTerminationSignal"] = @(terminationSignal);
     if (!preferencesWritten || !refreshRequested) {
-        final[@"refreshWarning"] = @"Descriptors were installed, but PosterBoard could not be conclusively refreshed. A device restart or manual PosterBoard restart may be required.";
+        NSString *detail = nil;
+        if (!preferencesWritten) {
+            detail = [NSString stringWithFormat:@"PosterBoard refresh preferences could not be written/owned (errno %d: %s).", preferencesErrno, strerror(preferencesErrno)];
+        } else if (spawnResult != 0) {
+            detail = [NSString stringWithFormat:@"Could not start /usr/bin/killall (posix_spawn result %d: %s).", spawnResult, strerror(spawnResult)];
+        } else if (waitError != 0) {
+            detail = [NSString stringWithFormat:@"Could not collect the PosterBoard restart command result (errno %d: %s).", waitError, strerror(waitError)];
+        } else if (terminationSignal != 0) {
+            detail = [NSString stringWithFormat:@"The PosterBoard restart command was terminated by signal %d.", terminationSignal];
+        } else {
+            detail = [NSString stringWithFormat:@"/usr/bin/killall exited with status %d; PosterBoard may not have been running or could not be signalled.", exitStatus];
+        }
+        final[@"refreshWarning"] = [NSString stringWithFormat:@"%@ Descriptor files remain published; the refresh flags are %@. A device restart or manual PosterBoard restart may be required.", detail, preferencesWritten ? @"written" : @"not confirmed"];
     }
-    return final;
 }
 
 + (NSDictionary *)installExtractedDescriptorTreeAtPath:(NSString *)extractedPath descriptorRoot:(NSString *)descriptorRoot error:(NSError **)error {
