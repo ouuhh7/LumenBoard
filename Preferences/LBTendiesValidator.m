@@ -28,6 +28,20 @@ static BOOL LBTNormalizePath(NSString *raw, BOOL dir, NSString **key, NSError **
     if(key)*key=[[parts componentsJoinedByString:@"/"] precomposedStringWithCanonicalMapping].lowercaseString;
     return YES;
 }
+// Finder/macOS archives commonly include a mirrored __MACOSX tree and
+// AppleDouble resource-fork files. These are not PosterBoard content. Keep
+// validating their ZIP paths, bounds and CRCs, but never parse or extract them.
+static BOOL LBTIsMetadataPath(NSString *path) {
+    for (NSString *component in [path componentsSeparatedByString:@"/"]) {
+        NSString *lower = component.lowercaseString;
+        if ([lower isEqualToString:@"__macosx"] ||
+            [lower isEqualToString:@"macosx"] ||
+            [lower isEqualToString:@".ds_store"] ||
+            [lower hasPrefix:@"._"]) return YES;
+    }
+    return NO;
+}
+
 static BOOL LBTEmitChunk(const uint8_t *bytes, NSUInteger length, uLong *crc, uint64_t *produced, NSMutableData *capture, int outputFD, NSError **error) {
     if(length > LBTMaxFile - *produced){if(error)*error=LBTMakeError(81,@"Decompressed output exceeds member limit");return NO;}
     *crc=crc32(*crc,bytes,(uInt)length);
@@ -86,7 +100,7 @@ static NSData *LBTProcessMember(const uint8_t *input, NSUInteger inputLength, NS
 @property(nonatomic,copy) NSString *name,*key;
 @property(nonatomic) uint16_t flags,method;
 @property(nonatomic) uint32_t crc,compressed,uncompressed,localOffset,external;
-@property(nonatomic) BOOL directory;
+@property(nonatomic) BOOL directory,ignoredMetadata;
 @property(nonatomic) uint64_t localHeaderSize,dataOffset,descriptorSize,recordEnd;
 @end
 @implementation LBTEntry @end
@@ -105,7 +119,7 @@ static NSData *LBTProcessMember(const uint8_t *input, NSUInteger inputLength, NS
     if(disk||cdDisk||onDisk!=count){if(error)*error=LBTMakeError(3,@"Multi-disk ZIP unsupported");return @{@"status":@"unsupported",@"errors":@[@"Multi-disk ZIP"]};}
     if(count==0xffff||cdSize==0xffffffff||cdOffset==0xffffffff){if(error)*error=LBTMakeError(4,@"ZIP64 unsupported");return @{@"status":@"unsupported",@"errors":@[@"ZIP64"]};}
     if(!count||count>LBTMaxEntries||!LBTRange(eocd,22+comment,n)||eocd+22+(NSUInteger)comment!=n||(uint64_t)cdOffset+cdSize!=eocd){if(error)*error=LBTMakeError(5,@"Invalid central directory");return @{@"status":@"invalid",@"errors":@[@"Invalid central directory"]};}
-    NSMutableArray<LBTEntry *> *entries=[NSMutableArray array]; NSMutableSet *keys=[NSMutableSet set]; NSMutableDictionary<NSString *, NSNumber *> *pathKinds=[NSMutableDictionary dictionary]; uint64_t total=0; NSUInteger cursor=cdOffset; BOOL descriptor=NO,container=NO;
+    NSMutableArray<LBTEntry *> *entries=[NSMutableArray array]; NSMutableSet *keys=[NSMutableSet set]; NSMutableDictionary<NSString *, NSNumber *> *pathKinds=[NSMutableDictionary dictionary]; uint64_t total=0; NSUInteger cursor=cdOffset,ignoredMetadataCount=0; BOOL descriptor=NO,container=NO;
     for(NSUInteger i=0;i<count;i++){
         if(!LBTRange(cursor,46,n)||LBTU32(b+cursor)!=0x02014b50){if(error)*error=LBTMakeError(6,@"Malformed central directory record");return @{@"status":@"invalid",@"errors":@[@"Malformed central directory"]};}
         const uint8_t *h=b+cursor; uint16_t flags=LBTU16(h+8),method=LBTU16(h+10),nl=LBTU16(h+28),xl=LBTU16(h+30),cl=LBTU16(h+32),diskStart=LBTU16(h+34);
@@ -169,9 +183,10 @@ static NSData *LBTProcessMember(const uint8_t *input, NSUInteger inputLength, NS
         if(flags&(1|0x40|0x2000)){if(error)*error=LBTMakeError(16,@"Encrypted entries unsupported");return @{@"status":@"unsupported",@"errors":@[@"Encrypted archive"]};}
         if(method!=0&&method!=8){if(error)*error=LBTMakeError(17,@"Unsupported compression method");return @{@"status":@"unsupported",@"errors":@[@"Unsupported compression"]};}
         if(us>LBTMaxFile||total+us>LBTMaxTotal||(us>0&&(cs==0||(uint64_t)us>(uint64_t)cs*500))){if(error)*error=LBTMakeError(18,@"ZIP bomb/resource bound exceeded");return @{@"status":@"invalid",@"errors":@[@"Decompression limit exceeded"]};}
-        total+=us; NSArray *nameComponents=[name.lowercaseString componentsSeparatedByString:@"/"]; if([nameComponents containsObject:@"container"])container=YES;
-        if([nameComponents containsObject:@"descriptor"]||[nameComponents containsObject:@"descriptors"])descriptor=YES;
-        LBTEntry *e=[LBTEntry new];e.name=name;e.key=key;e.flags=flags;e.method=method;e.crc=crc;e.compressed=cs;e.uncompressed=us;e.localOffset=local;e.external=ext;e.directory=dir;[entries addObject:e];cursor+=record;
+        total+=us; BOOL ignoredMetadata=LBTIsMetadataPath(name); if(ignoredMetadata)ignoredMetadataCount++;
+        if(!ignoredMetadata){NSArray *nameComponents=[name.lowercaseString componentsSeparatedByString:@"/"]; if([nameComponents containsObject:@"container"])container=YES;
+            if([nameComponents containsObject:@"descriptor"]||[nameComponents containsObject:@"descriptors"])descriptor=YES;}
+        LBTEntry *e=[LBTEntry new];e.name=name;e.key=key;e.flags=flags;e.method=method;e.crc=crc;e.compressed=cs;e.uncompressed=us;e.localOffset=local;e.external=ext;e.directory=dir;e.ignoredMetadata=ignoredMetadata;[entries addObject:e];cursor+=record;
     }
     if(cursor!=cdOffset+cdSize){if(error)*error=LBTMakeError(19,@"Central directory size mismatch");return @{@"status":@"invalid",@"errors":@[@"Central directory mismatch"]};}
     if(container){if(error)*error=LBTMakeError(25,@"Whole-container archives are unsupported");return @{@"status":@"unsupported",@"errors":@[@"Container-format archive"]};}
@@ -220,7 +235,7 @@ static NSData *LBTProcessMember(const uint8_t *input, NSUInteger inputLength, NS
             if(!directoryPayload || directoryPayload.length!=0){if(error)*error=directoryError?:LBTMakeError(79,@"Directory entry contains file data");return @{@"status":@"invalid",@"errors":@[directoryError.localizedDescription?:@"Non-empty directory entry"]};}
             continue;
         }
-        BOOL isPlist=[e.name.pathExtension.lowercaseString isEqualToString:@"plist"];
+        BOOL isPlist=!e.ignoredMetadata && [e.name.pathExtension.lowercaseString isEqualToString:@"plist"];
         NSError *decodeError=nil;
         NSData *plain=LBTProcessMember(b+data,e.compressed,e.uncompressed,e.method,e.crc,-1,isPlist,&decodeError);
         if(!plain){if(error)*error=decodeError;return @{@"status":@"invalid",@"errors":@[decodeError.localizedDescription?:@"Member validation failed"]};}
@@ -248,12 +263,13 @@ static NSData *LBTProcessMember(const uint8_t *input, NSUInteger inputLength, NS
         previousEnd=NSMaxRange(range);
     }
     if(!wallpapers.count){if(error)*error=LBTMakeError(34,@"No structurally complete Wallpaper.plist");return @{@"status":@"incomplete",@"errors":@[@"Wallpaper.plist missing"]};}
-    NSMutableDictionary *report=[@{@"status":@"valid",@"format":@"descriptor",@"archiveBytes":@(zip.length),@"entryCount":@(entries.count),@"uncompressedBytes":@(total),@"sha256":LBTHash(zip),@"plistFiles":plists,@"wallpaperPlists":wallpapers,@"compatibility":@"not-tested",@"validatorVersion":@"1.0.0"} mutableCopy];
+    NSMutableDictionary *report=[@{@"status":@"valid",@"format":@"descriptor",@"archiveBytes":@(zip.length),@"entryCount":@(entries.count),@"ignoredMetadataEntries":@(ignoredMetadataCount),@"uncompressedBytes":@(total),@"sha256":LBTHash(zip),@"plistFiles":plists,@"wallpaperPlists":wallpapers,@"compatibility":@"not-tested",@"validatorVersion":@"1.0.1"} mutableCopy];
     if(destination.length){
         struct stat ds; if(lstat(destination.fileSystemRepresentation,&ds)==0){if(error)*error=LBTMakeError(35,@"Extraction destination already exists");return @{@"status":@"invalid",@"errors":@[@"Destination exists"]};}
         if(mkdir(destination.fileSystemRepresentation,0700)!=0){if(error)*error=[NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];return @{@"status":@"incomplete",@"errors":@[@"Cannot create extraction root"]};}
         BOOL success=YES; NSError *extractError=nil;
         for(LBTEntry *e in entries){
+            if(e.ignoredMetadata)continue;
             NSString *target=[destination stringByAppendingPathComponent:e.name];
             if(e.directory){if(![[NSFileManager defaultManager] createDirectoryAtPath:target withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions:@0700} error:&extractError]){success=NO;break;}continue;}
             NSString *parent=target.stringByDeletingLastPathComponent;
