@@ -48,12 +48,11 @@ static BOOL LBValidateDeviceFamilyForLogicalScreenClass(NSString *logicalScreenC
             @"Wallpaper logicalScreenClass %@ does not declare an iPhone or iPad target.", logicalScreenClass ?: @"(missing)"]);
         return NO;
     }
-    if (![targetFamily isEqualToString:deviceFamily]) {
-        if (error) *error = LBInstallError(37, [NSString stringWithFormat:
-            @"Wallpaper targets an %@ screen class, but this device is %@ (%@). The descriptor was not published; use a wallpaper package built for this device family.",
-            targetFamily, deviceFamily, machineIdentifier]);
-        return NO;
-    }
+    // The logicalScreenClass suffix is descriptive metadata, not a reliable
+    // cross-device compatibility verdict. PosterBoard can render descriptors
+    // whose declared family differs from the host (confirmed with a real
+    // iPhone 13 using an ~ipad descriptor). Do not block publication on this
+    // mismatch; retain validation of the field's syntax above.
     return YES;
 }
 
