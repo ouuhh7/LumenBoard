@@ -22,7 +22,7 @@ launchd user/foreground/com.iuyghi.lumenboardd
 ## Package and launchd contract
 
 - Package: `com.iuyghi.lumenboard`
-- Current CI candidate: `0.1.0-15`
+- Current CI candidate: `0.1.0-16`
 - Debian architecture: `iphoneos-arm64`
 - Target: iOS 16.x, PosterBoard store structure 59, Collections extension
 - Daemon: `/var/jb/usr/libexec/lumenboardd`
@@ -41,7 +41,7 @@ The pane writes a bounded request with a fixed action allowlist. The daemon vali
 
 The native installer targets `Library/Application Support/PRBPosterExtensionDataStore/59/Extensions/com.apple.WallpaperKit.CollectionsPoster/descriptors` inside the discovered PosterBoard app container. It validates descriptor roots and required metadata, rejects unsafe filesystem objects, assigns new UUID directory names and collision-checked numeric wallpaper identifiers, rewrites linked identifier fields, stages complete trees, and publishes by rename. Rollback is restricted to paths successfully published by the current invocation.
 
-Each animation bundle's `index.xml` is an XML property list; the empty Floating layer retains the source media canvas dimensions so its index and CAML geometry remain aligned. This is based on the public Nugget VideoCAML reference, not proof of private-schema compatibility on the target OS.
+Each animation bundle's `index.xml` is a binary property list, matching the public iOS 16 PosterForge writer despite the `.xml` suffix. The empty Floating layer uses a neutral 1×1 CAML canvas, also matching that writer. This is a reference-based compatibility correction, not proof of private-schema acceptance on the target device.
 
 After publication, the implementation requests a PosterBoard refresh. This is separate from successful filesystem publication. UI status `registered-unverified` means descriptor records were published; it does not mean the item appeared in Collections, was selectable, or was applied as wallpaper.
 
