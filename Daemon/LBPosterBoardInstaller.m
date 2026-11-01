@@ -418,11 +418,21 @@ static BOOL LBValidateDescriptorTree(NSString *root, NSError **error) {
                 return NO;
             }
             for (NSString *layerPath in @[backgroundPath, floatingPath]) {
-                for (NSString *required in @[@"index.xml", @"main.caml"]) {
-                    if (!LBIsRegularFile([layerPath stringByAppendingPathComponent:required])) {
-                        if (error) *error = LBInstallError(29, [NSString stringWithFormat:@"CAML layer is missing %@: %@", required, layerPath]);
-                        return NO;
-                    }
+                NSString *indexPath = [layerPath stringByAppendingPathComponent:@"index.xml"];
+                NSString *rootDocumentPath = [layerPath stringByAppendingPathComponent:@"main.caml"];
+                if (!LBIsRegularFile(indexPath) || !LBIsRegularFile(rootDocumentPath)) {
+                    if (error) *error = LBInstallError(29, [NSString stringWithFormat:@"CAML layer is missing index.xml or main.caml: %@", layerPath]);
+                    return NO;
+                }
+                NSData *indexData = [NSData dataWithContentsOfFile:indexPath];
+                NSPropertyListFormat indexFormat = NSPropertyListOpenStepFormat;
+                id indexObject = indexData ?
+                    [NSPropertyListSerialization propertyListWithData:indexData options:NSPropertyListImmutable format:&indexFormat error:nil] : nil;
+                if (![indexObject isKindOfClass:NSDictionary.class] ||
+                    ![indexObject[@"rootDocument"] isEqual:@"main.caml"] ||
+                    ![indexObject[@"assetManifest"] isEqual:@"assetManifest.caml"]) {
+                    if (error) *error = LBInstallError(32, [NSString stringWithFormat:@"CAML index.xml is not a valid PosterBoard property list or does not reference main.caml and assetManifest.caml: %@", layerPath]);
+                    return NO;
                 }
             }
             wallpaperCount++;
