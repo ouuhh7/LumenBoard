@@ -1,0 +1,35 @@
+name: Validate descriptor screen-class preflight
+
+on:
+  push:
+    branches:
+      - fix/rootless-deb-installation
+    paths:
+      - "tools/descriptor_consistency.py"
+      - "tests/test_descriptor_consistency.py"
+      - ".github/workflows/screen-class-preflight.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  descriptor-preflight-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/rootless-deb-installation
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run complete Python regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -v 2>&1 | tee "$RUNNER_TEMP/descriptor-preflight-tests.log"
+          python3 -m compileall -q tools tests
+          echo "PASS: Python regression suite and compileall"
