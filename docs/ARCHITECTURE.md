@@ -39,7 +39,7 @@ The pane writes a bounded request with a fixed action allowlist. The daemon vali
 
 ## Descriptor publication
 
-The native installer targets `Library/Application Support/PRBPosterExtensionDataStore/59/Extensions/com.apple.WallpaperKit.CollectionsPoster/descriptors` inside the discovered PosterBoard app container. It validates descriptor roots and required metadata, rejects unsafe filesystem objects, assigns new UUID directory names and collision-checked numeric wallpaper identifiers, rewrites linked identifier fields, stages complete trees, and publishes by rename. Rollback is restricted to paths successfully published by the current invocation.
+The native installer targets `Library/Application Support/PRBPosterExtensionDataStore/59/Extensions/com.apple.WallpaperKit.CollectionsPoster/descriptors` inside the discovered PosterBoard app container. It validates descriptor roots and required metadata, parses every `index.xml` as a property list and requires `rootDocument = main.caml` plus `assetManifest = assetManifest.caml`, rejects unsafe filesystem objects, assigns new UUID directory names and collision-checked numeric wallpaper identifiers, rewrites linked identifier fields, stages complete trees, and publishes by rename. Rollback is restricted to paths successfully published by the current invocation.
 
 Each animation bundle's `index.xml` is a binary property list, matching the public iOS 16 PosterForge writer despite the `.xml` suffix. The empty Floating layer uses a neutral 1×1 CAML canvas, also matching that writer. This is a reference-based compatibility correction, not proof of private-schema acceptance on the target device.
 
