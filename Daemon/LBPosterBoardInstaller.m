@@ -10,10 +10,46 @@
 #import <pwd.h>
 #import <stdio.h>
 #import <string.h>
+#import <sys/sysctl.h>
 
 static NSString * const LBIssueDomain = @"com.iuyghi.LumenBoard.PosterBoardInstaller";
 static NSString * const LBCollectionsExtension = @"com.apple.WallpaperKit.CollectionsPoster";
 static const NSInteger LBExpectedStructureVersion = 59;
+
+static NSString *LBDeviceFamilyForMachineIdentifier(NSString *machineIdentifier) {
+    if ([machineIdentifier hasPrefix:@"iPhone"]) return @"iphone";
+    if ([machineIdentifier hasPrefix:@"iPad"]) return @"ipad";
+    return nil;
+}
+
+static NSString *LBCurrentDeviceMachineIdentifier(void) {
+    char machine[128] = {0};
+    size_t size = sizeof(machine);
+    if (sysctlbyname("hw.machine", machine, &size, NULL, 0) != 0 ||
+        size == 0 || size > sizeof(machine)) return nil;
+    machine[sizeof(machine) - 1] = '\0';
+    return [NSString stringWithUTF8String:machine];
+}
+
+static BOOL LBValidateDeviceFamilyForLogicalScreenClass(NSString *logicalScreenClass,
+                                                        NSString *machineIdentifier,
+                                                        NSError **error) {
+    NSString *deviceFamily = LBDeviceFamilyForMachineIdentifier(machineIdentifier);
+    if (!deviceFamily) return YES; // Unknown host (including macOS XCTest) is not a device verdict.
+    NSString *targetFamily = [[logicalScreenClass componentsSeparatedByString:@"~"] lastObject];
+    if (![targetFamily isEqualToString:@"iphone"] && ![targetFamily isEqualToString:@"ipad"]) {
+        if (error) *error = LBInstallError(36, [NSString stringWithFormat:
+            @"Wallpaper logicalScreenClass %@ does not declare an iPhone or iPad target.", logicalScreenClass ?: @"(missing)"]);
+        return NO;
+    }
+    if (![targetFamily isEqualToString:deviceFamily]) {
+        if (error) *error = LBInstallError(37, [NSString stringWithFormat:
+            @"Wallpaper targets an %@ screen class, but this device is %@ (%@). The descriptor was not published; use a wallpaper package built for this device family.",
+            targetFamily, deviceFamily, machineIdentifier]);
+        return NO;
+    }
+    return YES;
+}
 
 static NSError *LBInstallError(NSInteger code, NSString *message) {
     return [NSError errorWithDomain:LBIssueDomain code:code userInfo:@{NSLocalizedDescriptionKey: message ?: @"PosterBoard installation failed."}];
@@ -313,6 +349,9 @@ static BOOL LBValidateDescriptorTree(NSString *root, NSError **error) {
                 return NO;
             }
             NSDictionary *wallpaper = wallpaperObject;
+            NSString *machineIdentifier = LBCurrentDeviceMachineIdentifier();
+            if (machineIdentifier &&
+                !LBValidateDeviceFamilyForLogicalScreenClass(wallpaper[@"logicalScreenClass"], machineIdentifier, error)) return NO;
             NSDictionary *assets = [wallpaper[@"assets"] isKindOfClass:NSDictionary.class] ? wallpaper[@"assets"] : nil;
             NSDictionary *lockAndHome = [assets[@"lockAndHome"] isKindOfClass:NSDictionary.class] ? assets[@"lockAndHome"] : nil;
             NSDictionary *defaults = [lockAndHome[@"default"] isKindOfClass:NSDictionary.class] ? lockAndHome[@"default"] : nil;
@@ -484,6 +523,13 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
 }
 
 @implementation LBPosterBoardInstaller
+
+// Private, deterministic compatibility seam used by the macOS XCTest suite.
++ (BOOL)validateLogicalScreenClass:(NSString *)logicalScreenClass
+                machineIdentifier:(NSString *)machineIdentifier
+                             error:(NSError **)error {
+    return LBValidateDeviceFamilyForLogicalScreenClass(logicalScreenClass, machineIdentifier, error);
+}
 
 + (NSString *)findPosterBoardContainer:(NSError **)error {
     NSString *base = @"/var/mobile/Containers/Data/Application";
