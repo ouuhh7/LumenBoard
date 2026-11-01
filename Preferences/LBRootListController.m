@@ -433,10 +433,14 @@ static NSDictionary *LBQueueTendiesVerificationAndWait(NSString *identifier, NSE
                                                     @"The exact archive was already registered. Read-only verification found all %lu previously published descriptor directories and their required plist/CAML structure in PosterBoard's Collections store. This verifies filesystem registration only—not native gallery visibility, selectability, or wallpaper application. No duplicate registration was created.",
                                                     (unsigned long)expected];
                                             } else if (verification) {
+                                                NSArray *invalidDescriptors = [verification[@"invalidDescriptors"] isKindOfClass:NSArray.class] ? verification[@"invalidDescriptors"] : @[];
+                                                NSString *firstInvalidReason = [invalidDescriptors.firstObject[@"error"] isKindOfClass:NSString.class] ? invalidDescriptors.firstObject[@"error"] : @"";
+                                                NSString *compatibilityDetail = [firstInvalidReason containsString:@"targets an ipad screen class"] || [firstInvalidReason containsString:@"targets an iphone screen class"] ?
+                                                    [NSString stringWithFormat:@" Device compatibility: %@.", firstInvalidReason] : @"";
                                                 userMessage = [NSString stringWithFormat:
-                                                    @"The exact archive was previously registered, but its live descriptor-store check is %@: %lu of %lu records valid, %lu missing, %lu structurally invalid. No duplicate registration or automatic repair was attempted. PosterBoard gallery visibility and wallpaper application remain unverified.",
+                                                    @"The exact archive was previously registered, but its live descriptor-store check is %@: %lu of %lu records valid, %lu missing, %lu invalid or incompatible.%@ No duplicate registration or automatic repair was attempted. PosterBoard gallery visibility and wallpaper application remain unverified.",
                                                     storeState, (unsigned long)present, (unsigned long)expected,
-                                                    (unsigned long)missing, (unsigned long)invalid];
+                                                    (unsigned long)missing, (unsigned long)invalid, compatibilityDetail];
                                             } else {
                                                 userMessage = [NSString stringWithFormat:
                                                     @"The exact archive has a previous registration record, but live verification could not be completed: %@. No duplicate registration was created. PosterBoard gallery visibility and wallpaper application remain unverified.",
