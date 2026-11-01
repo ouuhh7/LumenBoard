@@ -40,6 +40,16 @@ class StaticDescriptorGeneratorTests(unittest.TestCase):
         self.assertTrue((wallpaper / "PF_Background.ca/assets/0.jpg").is_file())
         self.assertTrue((wallpaper / "PF_Background.ca/main.caml").is_file())
         self.assertTrue((wallpaper / "PF_Floating.ca/main.caml").is_file())
+        background_index = (wallpaper / "PF_Background.ca/index.xml").read_bytes()
+        self.assertTrue(background_index.startswith(b"bplist00"))
+        index = plistlib.loads(background_index)
+        self.assertEqual(set(index), {
+            "assetManifest", "documentHeight", "documentResizesToView",
+            "documentWidth", "geometryFlipped", "rootDocument", "scalesToFitInPlayer",
+        })
+        floating_index = plistlib.loads((wallpaper / "PF_Floating.ca/index.xml").read_bytes())
+        self.assertEqual(floating_index["documentWidth"], 1)
+        self.assertEqual(floating_index["documentHeight"], 1)
         report = validate_descriptors_root(self.output)
         self.assertEqual(report["status"], "passes-structural-checks", report)
         self.assertEqual(report["errors"], [])
