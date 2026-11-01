@@ -316,18 +316,19 @@ class ProjectPackagingContractTests(unittest.TestCase):
 
     def test_posterboard_refresh_skips_unprivileged_chown_and_never_controls_processes(self):
         installer = (self.PROJECT / "Daemon" / "LBPosterBoardInstaller.m").read_text()
-        self.assertIn("preferenceStat.st_uid != mobile->pw_uid", installer)
-        self.assertIn("preferenceStat.st_gid != mobile->pw_gid", installer)
-        self.assertIn("if (geteuid() == 0)", installer)
-        self.assertIn('final[@"refreshPreferencesErrno"]', installer)
-        self.assertIn('final[@"refreshCommandAttempted"] = @NO;', installer)
-        self.assertIn('final[@"posterBoardRefreshRequiresDeviceRestart"] = @(preferencesWritten);', installer)
+        self.assertIn("writtenStat.st_uid != mobile->pw_uid", installer)
+        self.assertIn("writtenStat.st_gid != mobile->pw_gid", installer)
+        self.assertIn("verifiedStat.st_uid != mobile->pw_uid", installer)
+        self.assertIn("verifiedStat.st_gid != mobile->pw_gid", installer)
+        self.assertIn("geteuid() != 0 && geteuid() != mobile->pw_uid", installer)
+        self.assertIn('@"refreshPreferencesErrno": @(written ? 0 : (savedErrno ?: EIO))', installer)
+        self.assertIn('@"refreshCommandAttempted": @NO', installer)
+        self.assertIn('@"posterBoardRefreshRequiresDeviceRestart": @(written)', installer)
+        self.assertIn("The existing PosterBoard preferences are not a valid property-list dictionary", installer)
         self.assertIn("LumenBoard does not terminate or signal system processes", installer)
-        self.assertNotIn("killall", installer)
-        self.assertNotIn("posix_spawn", installer)
-        self.assertNotIn("waitpid", installer)
-        self.assertNotIn("SIGKILL", installer)
-        self.assertNotIn("chown(preferencesPath.fileSystemRepresentation, mobile->pw_uid, mobile->pw_gid) != 0 ||", installer)
+        for forbidden in ("killall", "posix_spawn", "waitpid", "SIGKILL", "kill("):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, installer)
 
     def test_duplicate_tendies_path_performs_read_only_live_store_verification(self):
         installer = (self.PROJECT / "Daemon" / "LBPosterBoardInstaller.m").read_text()

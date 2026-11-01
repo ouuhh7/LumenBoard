@@ -49,8 +49,10 @@ class NativeMediaPipelineContractTests(unittest.TestCase):
 
     def test_posterboard_refresh_writes_flags_without_process_control(self):
         source = (ROOT / "Daemon/LBPosterBoardInstaller.m").read_text()
-        self.assertIn('final[@"refreshCommandAttempted"] = @NO;', source)
-        self.assertIn('final[@"posterBoardRefreshRequiresDeviceRestart"] = @(preferencesWritten);', source)
+        self.assertIn('@"refreshCommandAttempted": @NO', source)
+        self.assertIn('@"posterBoardRefreshRequested": @NO', source)
+        self.assertIn('@"posterBoardRefreshRequiresDeviceRestart": @(written)', source)
+        self.assertIn("NSPropertyListMutableContainersAndLeaves", source)
         self.assertIn("LumenBoard does not terminate or signal system processes", source)
         for forbidden in ("killall", "posix_spawn", "waitpid", "SIGKILL", "kill("):
             with self.subTest(forbidden=forbidden):
