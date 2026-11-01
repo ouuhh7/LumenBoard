@@ -11,6 +11,10 @@
 #import <stdio.h>
 #import <string.h>
 
+static NSString * const LBIssueDomain = @"com.iuyghi.LumenBoard.PosterBoardInstaller";
+static NSString * const LBCollectionsExtension = @"com.apple.WallpaperKit.CollectionsPoster";
+static const NSInteger LBExpectedStructureVersion = 59;
+
 static NSError *LBInstallError(NSInteger code, NSString *message) {
     return [NSError errorWithDomain:LBIssueDomain code:code userInfo:@{NSLocalizedDescriptionKey: message ?: @"PosterBoard installation failed."}];
 }
