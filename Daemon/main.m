@@ -183,9 +183,24 @@ static NSDictionary *LBVerifyManagedTendiesRegistration(NSDictionary *request, N
     NSDictionary *manifest = item[@"manifest"];
     NSArray *installedIdentifiers = [manifest[@"installedDescriptorIdentifiers"] isKindOfClass:NSArray.class] ?
         manifest[@"installedDescriptorIdentifiers"] : nil;
+
+    // Older .tendies imports persisted the complete installer report but did
+    // not copy its descriptor UUID list to the manifest's top level. Recover
+    // that already-durable list before declaring reconciliation impossible.
+    // This is read-only with respect to PosterBoard: it never guesses UUIDs
+    // from names, scans unrelated descriptors, or republishes the archive.
     if (installedIdentifiers.count == 0) {
+        NSDictionary *legacyReport = [manifest[@"installationReport"] isKindOfClass:NSDictionary.class] ?
+            manifest[@"installationReport"] : nil;
+        NSArray *reportedIdentifiers = [legacyReport[@"installedDescriptorIdentifiers"] isKindOfClass:NSArray.class] ?
+            legacyReport[@"installedDescriptorIdentifiers"] : nil;
+        if (reportedIdentifiers.count > 0 && reportedIdentifiers.count <= 256) {
+            installedIdentifiers = reportedIdentifiers;
+        }
+    }
+    if (installedIdentifiers.count == 0 || installedIdentifiers.count > 256) {
         if (error) *error = [NSError errorWithDomain:@"com.iuyghi.LumenBoard.Daemon" code:120
-            userInfo:@{NSLocalizedDescriptionKey:@"This managed archive has no durable list of published descriptor UUIDs; filesystem reconciliation is unavailable."}];
+            userInfo:@{NSLocalizedDescriptionKey:@"This managed archive has no recoverable, bounded list of published descriptor UUIDs in its manifest or saved installation report; no filesystem-wide guess or duplicate publication was attempted."}];
         return nil;
     }
 
