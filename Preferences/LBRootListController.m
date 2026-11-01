@@ -11,6 +11,23 @@
 static NSString * const LBManifestName = @"manifest.plist";
 static const unsigned long long LBMaxImportBytes = 300ULL * 1024ULL * 1024ULL;
 
+static NSString *LBPosterBoardRefreshStatus(NSDictionary *report) {
+    BOOL preferencesWritten = [report[@"refreshPreferencesWritten"] boolValue];
+    BOOL refreshCompleted = [report[@"posterBoardRefreshRequested"] boolValue];
+    int spawnResult = [report[@"refreshSpawnResult"] intValue];
+
+    if (refreshCompleted) {
+        return @"A PosterBoard refresh command completed successfully; actual gallery reload remains unverified.";
+    }
+    if (!preferencesWritten) {
+        return @"PosterBoard refresh flags could not be written or verified. A device restart may be needed to reload the published descriptors.";
+    }
+    if (spawnResult != 0) {
+        return @"PosterBoard refresh flags were written, but no automatic refresh command is available on this device. A device restart may be needed to reload the published descriptors.";
+    }
+    return @"PosterBoard refresh flags were written, but the refresh command did not complete successfully. A device restart may be needed to reload the published descriptors.";
+}
+
 static NSString *LBSHA256ForFile(NSString *path) {
     NSInputStream *stream = [NSInputStream inputStreamWithFileAtPath:path];
     [stream open];
@@ -463,9 +480,12 @@ static NSDictionary *LBQueueTendiesVerificationAndWait(NSString *identifier, NSE
                                                 [manifest removeObjectForKey:@"daemonRequestID"];
                                                 finalStatus = @"registered-unverified";
                                                 stored = YES;
-                                                userMessage = @"The descriptor records were published to the iOS 16 PosterBoard Collections store and a refresh was requested. Native gallery recognition, wallpaper selection, and actual application remain unverified on this device.";
-                                                if ([completion[@"result"][@"refreshWarning"] isKindOfClass:NSString.class]) {
-                                                    userMessage = [userMessage stringByAppendingFormat:@"\n\nRefresh warning: %@", completion[@"result"][@"refreshWarning"]];
+                                                NSDictionary *installationReport = [completion[@"result"] isKindOfClass:NSDictionary.class] ? completion[@"result"] : @{};
+                                                userMessage = [NSString stringWithFormat:
+                                                    @"The descriptor records were published to the iOS 16 PosterBoard Collections store. %@ Native gallery recognition, wallpaper selection, and actual application remain unverified on this device.",
+                                                    LBPosterBoardRefreshStatus(installationReport)];
+                                                if ([installationReport[@"refreshWarning"] isKindOfClass:NSString.class]) {
+                                                    userMessage = [userMessage stringByAppendingFormat:@"\n\nRefresh details: %@", installationReport[@"refreshWarning"]];
                                                 }
                                             } else if ([completion[@"timedOut"] boolValue]) {
                                                 manifest[@"status"] = @"registering";
@@ -514,9 +534,11 @@ static NSDictionary *LBQueueTendiesVerificationAndWait(NSString *identifier, NSE
                                         [manifest removeObjectForKey:@"daemonRequestID"];
                                         finalStatus = @"registered-unverified";
                                         stored = YES;
-                                        userMessage = @"The media was converted into a PosterBoard descriptor and published to the iOS 16 Collections store. Native gallery recognition, wallpaper selection, and actual application still require device verification.";
+                                        userMessage = [NSString stringWithFormat:
+                                            @"The media was converted into a PosterBoard descriptor and published to the iOS 16 Collections store. %@ Native gallery recognition, wallpaper selection, and actual application still require device verification.",
+                                            LBPosterBoardRefreshStatus(report)];
                                         if ([report[@"refreshWarning"] isKindOfClass:NSString.class]) {
-                                            userMessage = [userMessage stringByAppendingFormat:@"\n\nRefresh warning: %@", report[@"refreshWarning"]];
+                                            userMessage = [userMessage stringByAppendingFormat:@"\n\nRefresh details: %@", report[@"refreshWarning"]];
                                         }
                                     } else if ([completion[@"timedOut"] boolValue]) {
                                         manifest[@"status"] = @"generating";
