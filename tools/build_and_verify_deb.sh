@@ -36,6 +36,7 @@ if [[ ${#debs[@]} -ne 1 ]]; then
   exit 5
 fi
 deb="${debs[0]}"
+"$PROJECT_DIR/tools/normalize_deb_ownership.sh" "$deb"
 echo "=== dpkg-deb --info ==="
 dpkg-deb --info "$deb"
 arch="$(dpkg-deb -f "$deb" Architecture)"

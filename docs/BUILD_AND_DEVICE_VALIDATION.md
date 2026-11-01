@@ -65,6 +65,13 @@ Treat the package as CI-verified, not device-validated.
 
 ## Local build
 
+On macOS Theos builds, the build helper rewrites the package data archive with
+`dpkg-deb --root-owner-group` and verifies numeric UID/GID 0 for every payload
+entry. `dpkg-deb --contents` owner names are insufficient for this check: a
+macOS archive may display `root/wheel` while storing the runner's numeric
+ownership. The CI package verification applies the same normalization and
+numeric header check before publishing the artifact.
+
 On a supported Theos/macOS environment:
 
 ```sh

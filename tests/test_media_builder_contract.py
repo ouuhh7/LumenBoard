@@ -7,6 +7,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class NativeMediaPipelineContractTests(unittest.TestCase):
+    def test_package_build_normalizes_numeric_archive_ownership(self):
+        script = (ROOT / "tools" / "build_and_verify_deb.sh").read_text()
+        self.assertIn("normalize_deb_ownership.sh", script)
+
     def test_native_builder_emits_posterboard_descriptor_components(self):
         source = (ROOT / "Daemon/LBPosterMediaBuilder.m").read_text()
         for token in (

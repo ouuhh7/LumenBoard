@@ -36,6 +36,7 @@ jobs:
           python -m unittest discover -s tests -v
           python -m compileall -q tools tests
           bash -n tools/build_and_verify_deb.sh
+          bash -n tools/normalize_deb_ownership.sh
           python tools/tendies_inspect.py --help >/dev/null
           python tools/static_wallpaper_builder.py --help >/dev/null
           python tools/descriptor_consistency.py --help >/dev/null
@@ -127,6 +128,7 @@ jobs:
           set -euo pipefail
           DEB="$(find packages -maxdepth 1 -type f -name '*.deb' -print -quit)"
           test -n "$DEB"
+          tools/normalize_deb_ownership.sh "$DEB"
           # Validate the ar/deb container before inspecting its payload.
           ar t "$DEB" | tee package-archive-members.txt
           grep -Fxq "debian-binary" package-archive-members.txt
@@ -203,13 +205,8 @@ jobs:
           print("PASS: rootless payload contains no symlinks or unsafe permissions")
           PY
 
-          # Debian's archive owner metadata should remain root:wheel for jailbreak install.
-          if dpkg-deb --contents "$DEB" | awk 'NF && $2 != "root/wheel" { print; bad=1 } END { exit bad }'; then
-            echo "PASS: package payload owners are root:wheel"
-          else
-            echo "FAIL: package contains payload entries not owned by root:wheel" >&2
-            exit 1
-          fi
+          # Display names may conceal the macOS runner's numeric UID/GID.
+          python3 tools/verify_deb_ownership.py "$DEB"
 
           shasum -a 256 "$DEB" | tee SHA256SUMS
           {
