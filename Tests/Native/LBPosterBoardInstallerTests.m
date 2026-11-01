@@ -462,29 +462,28 @@
     XCTAssertEqualObjects(missing[@"missingDescriptorCount"], @1);
 }
 
-- (void)testDeviceFamilyPreflightRejectsIPadWallpaperOnIPhone {
+- (void)testDeviceFamilyPreflightAllowsIPadWallpaperOnIPhone13 {
     NSError *error = nil;
     BOOL compatible = [LBPosterBoardInstaller validateLogicalScreenClass:@"810w-1080h@2x~ipad"
-        machineIdentifier:@"iPhone10,6" error:&error];
-    XCTAssertFalse(compatible);
-    XCTAssertEqual(error.code, 37);
-    XCTAssertTrue([error.localizedDescription containsString:@"targets an ipad screen class"]);
+        machineIdentifier:@"iPhone14,5" error:&error];
+    XCTAssertTrue(compatible, @"%@", error);
+    XCTAssertNil(error);
 }
 
-- (void)testDeviceFamilyPreflightAcceptsIPhoneWallpaperOnIPhoneX {
+- (void)testDeviceFamilyPreflightAllowsIPadWallpaperOnIPhoneX {
     NSError *error = nil;
-    BOOL compatible = [LBPosterBoardInstaller validateLogicalScreenClass:@"375w-812h@3x~iphone"
+    BOOL compatible = [LBPosterBoardInstaller validateLogicalScreenClass:@"810w-1080h@2x~ipad"
         machineIdentifier:@"iPhone10,6" error:&error];
     XCTAssertTrue(compatible, @"%@", error);
     XCTAssertNil(error);
 }
 
-- (void)testDeviceFamilyPreflightRejectsIPhoneWallpaperOnIPad {
+- (void)testDeviceFamilyPreflightAllowsIPhoneWallpaperOnIPad {
     NSError *error = nil;
     BOOL compatible = [LBPosterBoardInstaller validateLogicalScreenClass:@"375w-812h@3x~iphone"
         machineIdentifier:@"iPad7,5" error:&error];
-    XCTAssertFalse(compatible);
-    XCTAssertEqual(error.code, 37);
+    XCTAssertTrue(compatible, @"%@", error);
+    XCTAssertNil(error);
 }
 
 - (void)testDeviceFamilyPreflightDoesNotGuessForUnknownHost {
