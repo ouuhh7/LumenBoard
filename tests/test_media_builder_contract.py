@@ -47,39 +47,14 @@ class NativeMediaPipelineContractTests(unittest.TestCase):
         self.assertIn("requestPosterBoardRefreshForContainer:container", source)
 
 
-    def test_posterboard_refresh_resolves_rootless_killall_before_stock_paths(self):
+    def test_posterboard_refresh_writes_flags_without_process_control(self):
         source = (ROOT / "Daemon/LBPosterBoardInstaller.m").read_text()
-        self.assertIn("static NSArray<NSString *> *LBKillallExecutableCandidates(void)", source)
-        rootless = source.index('@"/var/jb/usr/bin/killall"')
-        rootless_bin = source.index('@"/var/jb/bin/killall"')
-        stock_usr = source.index('@"/usr/bin/killall"')
-        stock_bin = source.index('@"/bin/killall"')
-        self.assertLess(rootless, rootless_bin)
-        self.assertLess(rootless_bin, stock_usr)
-        self.assertLess(stock_usr, stock_bin)
-        self.assertIn("S_ISREG(candidateStat.st_mode)", source)
-        self.assertIn("access(candidate.fileSystemRepresentation, X_OK) == 0", source)
-        self.assertEqual(source.count('LBRunPosterBoardRefresh(LBKillallExecutableCandidates(), @"PosterBoard", 15.0, LBDefaultWaitPID)'), 1)
-        self.assertEqual(source.count('LBRunPosterBoardRefresh(candidates, @"PosterBoard", 15.0, LBDefaultWaitPID)'), 1)
-        self.assertIn("killallCandidates:LBKillallExecutableCandidates()", source)
-
-    def test_refresh_process_wait_is_bounded_and_reports_all_terminal_states(self):
-        source = (ROOT / "Daemon/LBPosterBoardInstaller.m").read_text()
-        for token in (
-            "waitFunction(pid, &status, WNOHANG)",
-            "errno == EINTR",
-            "WIFEXITED(status)",
-            "WIFSIGNALED(status)",
-            "kill(pid, SIGKILL)",
-            "refreshProcessTimedOut",
-            "refreshCandidatePaths",
-            "refreshProcessTerminationSignal",
-            "childReaped",
-            "errno == ECHILD",
-            "return waitpid(pid, status, options)",
-        ):
-            with self.subTest(token=token):
-                self.assertIn(token, source)
+        self.assertIn('final[@"refreshCommandAttempted"] = @NO;', source)
+        self.assertIn('final[@"posterBoardRefreshRequiresDeviceRestart"] = @(preferencesWritten);', source)
+        self.assertIn("LumenBoard does not terminate or signal system processes", source)
+        for forbidden in ("killall", "posix_spawn", "waitpid", "SIGKILL", "kill("):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, source)
 
     def test_posterboard_index_xml_uses_binary_posterforge_property_list_format(self):
         source = (ROOT / "Daemon/LBPosterMediaBuilder.m").read_text()
