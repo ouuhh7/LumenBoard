@@ -35,7 +35,7 @@ A `script.js` file is present in the Floating assets directory. It was treated a
 
 This is an iPad-oriented descriptor, not an iPhone X descriptor. PosterForge's iOS 16 reference builder uses `375w-812h@3x~iphone` for its iPhone poster template, matching the iPhone X logical dimensions. Renaming the screen-class string alone would not safely convert this package: its CAML geometry and artwork layout are square and iPad-derived.
 
-**Disposition:** structurally useful as a real descriptor-format parser/import fixture, but not suitable as an iPhone X / iOS 16.7.16 rendering-compatibility fixture. Do not auto-rewrite its screen class or CAML geometry and do not publish it to the device as an iPhone wallpaper.
+**Disposition:** structurally useful as a real descriptor-format parser/import fixture, but not suitable as an iPhone X / iOS 16.7.16 rendering-compatibility fixture. Do not auto-rewrite its screen class or CAML geometry. The native publisher now detects the device family from `hw.machine` and rejects an iPad-target descriptor on an iPhone (and vice versa) before publication. This family check does not rewrite or remove descriptor records that were published by an earlier build; any previously published iPad-target record remains untouched and requires separate, explicitly authorized device-side cleanup.
 
 ## LumenBoard implementation implications
 
@@ -56,3 +56,9 @@ No cryptographic or Apple-private schema guarantee is claimed. No install, Poste
 - LumenBoard native validator: https://github.com/ouuhh7/LumenBoard/blob/fix/rootless-deb-installation/Preferences/LBTendiesValidator.m
 - LumenBoard descriptor consistency checker: https://github.com/ouuhh7/LumenBoard/blob/fix/rootless-deb-installation/tools/descriptor_consistency.py
 - LumenBoard descriptor publisher: https://github.com/ouuhh7/LumenBoard/blob/fix/rootless-deb-installation/Daemon/LBPosterBoardInstaller.m
+
+## Follow-up implementation update
+
+- Automatic `killall -9 PosterBoard` process termination has been removed. LumenBoard only writes and verifies the two PosterBoard refresh preference flags; it does not signal or terminate system processes. The report now states that a full device restart may be needed and does not claim that a refresh command was requested.
+- Native descriptor validation now compares the `.wallpaper` `logicalScreenClass` family (`~iphone` / `~ipad`) with the device family reported by `hw.machine`. A cross-family descriptor is rejected before publication and also reported as structurally incompatible during read-only verification.
+- Exact screen geometry, artwork scaling, Apple renderer behavior, gallery visibility and actual wallpaper application remain unverified. The family preflight is a mismatch guard, not a rendering certification.
