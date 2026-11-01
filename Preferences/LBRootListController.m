@@ -14,7 +14,7 @@ static const unsigned long long LBMaxImportBytes = 300ULL * 1024ULL * 1024ULL;
 static NSString *LBPosterBoardRefreshStatus(NSDictionary *report) {
     BOOL preferencesWritten = [report[@"refreshPreferencesWritten"] boolValue];
     BOOL refreshCompleted = [report[@"posterBoardRefreshRequested"] boolValue];
-    int spawnResult = [report[@"refreshSpawnResult"] intValue];
+    BOOL commandAttempted = [report[@"refreshCommandAttempted"] boolValue];
 
     if (refreshCompleted) {
         return @"A PosterBoard refresh command completed successfully; actual gallery reload remains unverified.";
@@ -22,8 +22,8 @@ static NSString *LBPosterBoardRefreshStatus(NSDictionary *report) {
     if (!preferencesWritten) {
         return @"PosterBoard refresh flags could not be written or verified. A device restart may be needed to reload the published descriptors.";
     }
-    if (spawnResult != 0) {
-        return @"PosterBoard refresh flags were written, but no automatic refresh command is available on this device. A device restart may be needed to reload the published descriptors.";
+    if (!commandAttempted) {
+        return @"PosterBoard refresh flags were written. LumenBoard does not terminate or signal system processes; a device restart may be needed to reload the published descriptors.";
     }
     return @"PosterBoard refresh flags were written, but the refresh command did not complete successfully. A device restart may be needed to reload the published descriptors.";
 }
