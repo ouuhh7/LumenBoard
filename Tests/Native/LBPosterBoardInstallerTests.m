@@ -190,7 +190,7 @@ static pid_t LBTestWaitPIDFailureAfterReap(pid_t pid, int *status, int options) 
     NSDictionary *result = [LBPosterBoardInstaller installExtractedDescriptorTreeAtPath:input descriptorRoot:descriptorRoot error:&error];
     XCTAssertNil(result);
     XCTAssertEqual(error.code, 32);
-    XCTAssertEqualObjects([[NSFileManager defaultManager] contentsOfDirectoryAtPath:descriptorRoot error:nil], (@[]));
+    XCTAssertFalse([[NSFileManager defaultManager] fileExistsAtPath:descriptorRoot]);
 }
 
 - (void)testInstallsMultipleDescriptorsWithUniqueUUIDsAndNumericIDs {
