@@ -126,7 +126,7 @@ def _check_asset_references(ca_dir: Path, report: dict[str, Any], label: str) ->
                 report["errors"].append(f"{label}/{caml.name}: invalid asset reference {raw_ref!r}: {exc}")
 
 
-def _validate_one(descriptor: Path, report: dict[str, Any], seen_descriptor_ids: set[str], seen_wallpaper_ids: set[int]) -> dict[str, Any] | None:
+def _validate_one(descriptor: Path, report: dict[str, Any], seen_descriptor_ids: set[str], seen_wallpaper_ids: set[int], expected_screen_class: str | None = None) -> dict[str, Any] | None:
     root_label = descriptor.name
     before_errors = len(report["errors"])
     if descriptor.is_symlink() or not descriptor.is_dir():
@@ -186,6 +186,13 @@ def _validate_one(descriptor: Path, report: dict[str, Any], seen_descriptor_ids:
     if not isinstance(metadata, dict):
         report["errors"].append(f"{root_label}: Wallpaper.plist root is not a dictionary")
         return None
+
+    logical_screen_class = metadata.get("logicalScreenClass")
+    if not isinstance(logical_screen_class, str) or not re.fullmatch(r"[1-9]\\d*w-[1-9]\\d*h@[1-9]\\d*x~[A-Za-z0-9_-]+", logical_screen_class):
+        report["errors"].append(f"{root_label}: Wallpaper.plist logicalScreenClass is missing or malformed")
+        logical_screen_class = None
+    elif expected_screen_class is not None and logical_screen_class != expected_screen_class:
+        report["warnings"].append(f"{root_label}: logicalScreenClass {logical_screen_class!r} does not match requested target {expected_screen_class!r}; this is a metadata mismatch, not a renderer compatibility verdict")
 
     wallpaper_id = metadata.get("identifier")
     if isinstance(wallpaper_id, bool) or not isinstance(wallpaper_id, int) or wallpaper_id < 0:
@@ -279,17 +286,21 @@ def _validate_one(descriptor: Path, report: dict[str, Any], seen_descriptor_ids:
         "role_identifier": role_value,
         "wallpaper_bundle": wallpaper.name,
         "wallpaper_identifier": wallpaper_id,
+        "logical_screen_class": logical_screen_class,
         "ca_bundles": ca_refs,
         "status": status,
     }
 
 
-def validate_descriptors_root(root: Path) -> dict[str, Any]:
+def validate_descriptors_root(root: Path, expected_screen_class: str | None = None) -> dict[str, Any]:
+    if expected_screen_class is not None and not re.fullmatch(r"[1-9]\\d*w-[1-9]\\d*h@[1-9]\\d*x~[A-Za-z0-9_-]+", expected_screen_class):
+        raise ConsistencyError("expected screen class must use the observed WIDTHw-HEIGHTh@SCALEx~DEVICE format")
     base = root.absolute()
     report: dict[str, Any] = {
         "schema": "lumenboard.posterforge-ios16-structure-check.v1",
         "status": "not-validated",
         "scope": "structural-consistency-only-not-a-PosterBoard-compatibility-test",
+        "expected_screen_class": expected_screen_class,
         "root": str(base),
         "errors": [],
         "warnings": [],
@@ -310,7 +321,7 @@ def validate_descriptors_root(root: Path) -> dict[str, Any]:
     seen_descriptor_ids: set[str] = set()
     seen_wallpaper_ids: set[int] = set()
     for descriptor in descriptor_dirs:
-        item = _validate_one(descriptor, report, seen_descriptor_ids, seen_wallpaper_ids)
+        item = _validate_one(descriptor, report, seen_descriptor_ids, seen_wallpaper_ids, expected_screen_class)
         if item is not None:
             report["descriptors"].append(item)
     if report["errors"]:
@@ -325,9 +336,10 @@ def validate_descriptors_root(root: Path) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("descriptors_root", type=Path, help="extracted descriptors directory; this command is read-only")
+    parser.add_argument("--expected-screen-class", help="optional exact metadata target, e.g. 375w-812h@3x~iphone; mismatch is reported as a warning")
     args = parser.parse_args(argv)
     try:
-        report = validate_descriptors_root(args.descriptors_root)
+        report = validate_descriptors_root(args.descriptors_root, args.expected_screen_class)
     except (ConsistencyError, OSError) as exc:
         print(json.dumps({"status": "invalid-input", "error": str(exc)}, indent=2), file=sys.stderr)
         return 2
