@@ -362,13 +362,17 @@ static BOOL LBValidateCAMLDocumentAtPath(NSString *path, NSString *layerPath, NS
     }
 
     for (NSString *reference in collector.references) {
-        if (!LBPathIsSafeRelative(reference) ||
-            [reference rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound ||
-            [reference containsString:@":"]) {
+        // CAML stores asset URLs, not raw filesystem paths. Decode percent
+        // escapes once before applying path-safety checks and resolving the
+        // local asset (e.g. "cloud2%201.png" -> "cloud2 1.png").
+        NSString *decodedReference = [reference stringByRemovingPercentEncoding];
+        if (!decodedReference || !LBPathIsSafeRelative(decodedReference) ||
+            [decodedReference rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound ||
+            [decodedReference containsString:@":"]) {
             if (error) *error = LBInstallError(34, [NSString stringWithFormat:@"Unsafe CAML asset reference in %@: %@", path, reference]);
             return NO;
         }
-        NSString *assetPath = [layerPath stringByAppendingPathComponent:reference];
+        NSString *assetPath = [layerPath stringByAppendingPathComponent:decodedReference];
         if (!LBIsRegularFile(assetPath)) {
             if (error) *error = LBInstallError(35, [NSString stringWithFormat:@"CAML asset reference does not resolve to a regular file: %@ (%@)", reference, path]);
             return NO;
