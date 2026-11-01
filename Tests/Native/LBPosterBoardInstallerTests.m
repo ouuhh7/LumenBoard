@@ -206,6 +206,48 @@ static pid_t LBTestWaitPIDFailureAfterReap(pid_t pid, int *status, int options) 
     XCTAssertFalse([[NSFileManager defaultManager] fileExistsAtPath:descriptorRoot]);
 }
 
+- (void)testResolvesPercentEncodedCAMLAssetFilename {
+    NSString *input = [self makeDescriptorGroupWithNames:@[@"Percent-encoded CAML asset"] missingFiles:[NSSet set]];
+    NSString *layer = [input stringByAppendingPathComponent:@"descriptors/fixture-1/versions/1/contents/Fixture1.Custom.wallpaper/PF_Background.ca"];
+    NSString *assets = [layer stringByAppendingPathComponent:@"assets"];
+    NSError *fileError = nil;
+    XCTAssertTrue([[NSFileManager defaultManager] createDirectoryAtPath:assets withIntermediateDirectories:YES attributes:nil error:&fileError], @"%@", fileError);
+    XCTAssertTrue([@"fixture asset" writeToFile:[assets stringByAppendingPathComponent:@"cloud2 1.png"]
+        atomically:YES encoding:NSUTF8StringEncoding error:&fileError], @"%@", fileError);
+    NSString *camlPath = [layer stringByAppendingPathComponent:@"main.caml"];
+    XCTAssertTrue([@"<caml><contents src=\"assets/cloud2%201.png\"/></caml>"
+        writeToFile:camlPath atomically:YES encoding:NSUTF8StringEncoding error:&fileError], @"%@", fileError);
+
+    NSDictionary *result = [self install:input];
+    XCTAssertEqualObjects(result[@"installedDescriptorCount"], @1);
+}
+
+- (void)testRejectsPercentEncodedCAMLPathTraversal {
+    NSString *input = [self makeDescriptorGroupWithNames:@[@"Encoded traversal"] missingFiles:[NSSet set]];
+    NSString *camlPath = [input stringByAppendingPathComponent:@"descriptors/fixture-1/versions/1/contents/Fixture1.Custom.wallpaper/PF_Background.ca/main.caml"];
+    XCTAssertTrue([@"<caml><contents src=\"%2e%2e/escape.png\"/></caml>"
+        writeToFile:camlPath atomically:YES encoding:NSUTF8StringEncoding error:nil]);
+    NSString *descriptorRoot = [self.temporaryRoot stringByAppendingPathComponent:@"PosterBoard/59/Extensions/com.apple.WallpaperKit.CollectionsPoster/descriptors"];
+    NSError *error = nil;
+    NSDictionary *result = [LBPosterBoardInstaller installExtractedDescriptorTreeAtPath:input descriptorRoot:descriptorRoot error:&error];
+    XCTAssertNil(result);
+    XCTAssertEqual(error.code, 34);
+    XCTAssertFalse([[NSFileManager defaultManager] fileExistsAtPath:descriptorRoot]);
+}
+
+- (void)testRejectsMalformedPercentEscapeInCAMLAssetReference {
+    NSString *input = [self makeDescriptorGroupWithNames:@[@"Malformed asset URL"] missingFiles:[NSSet set]];
+    NSString *camlPath = [input stringByAppendingPathComponent:@"descriptors/fixture-1/versions/1/contents/Fixture1.Custom.wallpaper/PF_Background.ca/main.caml"];
+    XCTAssertTrue([@"<caml><contents src=\"assets/bad%2.png\"/></caml>"
+        writeToFile:camlPath atomically:YES encoding:NSUTF8StringEncoding error:nil]);
+    NSString *descriptorRoot = [self.temporaryRoot stringByAppendingPathComponent:@"PosterBoard/59/Extensions/com.apple.WallpaperKit.CollectionsPoster/descriptors"];
+    NSError *error = nil;
+    NSDictionary *result = [LBPosterBoardInstaller installExtractedDescriptorTreeAtPath:input descriptorRoot:descriptorRoot error:&error];
+    XCTAssertNil(result);
+    XCTAssertEqual(error.code, 34);
+    XCTAssertFalse([[NSFileManager defaultManager] fileExistsAtPath:descriptorRoot]);
+}
+
 - (void)testRejectsMissingCAMLAssetBeforePublishing {
     NSString *input = [self makeDescriptorGroupWithNames:@[@"Missing CAML asset"] missingFiles:[NSSet set]];
     NSString *camlPath = [input stringByAppendingPathComponent:@"descriptors/fixture-1/versions/1/contents/Fixture1.Custom.wallpaper/PF_Background.ca/main.caml"];
