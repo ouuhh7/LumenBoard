@@ -193,6 +193,114 @@ static pid_t LBTestWaitPIDFailureAfterReap(pid_t pid, int *status, int options) 
     XCTAssertFalse([[NSFileManager defaultManager] fileExistsAtPath:descriptorRoot]);
 }
 
+- (void)testRejectsMalformedCAMLBeforePublishing {
+    NSString *input = [self makeDescriptorGroupWithNames:@[@"Malformed CAML"] missingFiles:[NSSet set]];
+    NSString *camlPath = [input stringByAppendingPathComponent:@"descriptors/fixture-1/versions/1/contents/Fixture1.Custom.wallpaper/PF_Background.ca/main.caml"];
+    XCTAssertTrue([@"<caml><layer>" writeToFile:camlPath atomically:YES encoding:NSUTF8StringEncoding error:nil]);
+
+    NSString *descriptorRoot = [self.temporaryRoot stringByAppendingPathComponent:@"PosterBoard/59/Extensions/com.apple.WallpaperKit.CollectionsPoster/descriptors"];
+    NSError *error = nil;
+    NSDictionary *result = [LBPosterBoardInstaller installExtractedDescriptorTreeAtPath:input descriptorRoot:descriptorRoot error:&error];
+    XCTAssertNil(result);
+    XCTAssertEqual(error.code, 33);
+    XCTAssertFalse([[NSFileManager defaultManager] fileExistsAtPath:descriptorRoot]);
+}
+
+- (void)testRejectsMissingCAMLAssetBeforePublishing {
+    NSString *input = [self makeDescriptorGroupWithNames:@[@"Missing CAML asset"] missingFiles:[NSSet set]];
+    NSString *camlPath = [input stringByAppendingPathComponent:@"descriptors/fixture-1/versions/1/contents/Fixture1.Custom.wallpaper/PF_Background.ca/main.caml"];
+    XCTAssertTrue([@"<caml><contents src=\"assets/missing.jpg\"/></caml>" writeToFile:camlPath atomically:YES encoding:NSUTF8StringEncoding error:nil]);
+
+    NSString *descriptorRoot = [self.temporaryRoot stringByAppendingPathComponent:@"PosterBoard/59/Extensions/com.apple.WallpaperKit.CollectionsPoster/descriptors"];
+    NSError *error = nil;
+    NSDictionary *result = [LBPosterBoardInstaller installExtractedDescriptorTreeAtPath:input descriptorRoot:descriptorRoot error:&error];
+    XCTAssertNil(result);
+    XCTAssertEqual(error.code, 35);
+    XCTAssertFalse([[NSFileManager defaultManager] fileExistsAtPath:descriptorRoot]);
+}
+
+- (void)testNonDictionaryUserInfoIsRejectedWithoutThrowing {
+    NSString *input = [self makeDescriptorGroupWithNames:@[@"Invalid user-info root"] missingFiles:[NSSet set]];
+    NSString *userInfoPath = [input stringByAppendingPathComponent:@"descriptors/fixture-1/versions/1/contents/com.apple.posterkit.provider.contents.userInfo"];
+    XCTAssertTrue([self writePlist:@"not a dictionary" toPath:userInfoPath]);
+
+    NSString *descriptorRoot = [self.temporaryRoot stringByAppendingPathComponent:@"PosterBoard/59/Extensions/com.apple.WallpaperKit.CollectionsPoster/descriptors"];
+    NSError *error = nil;
+    NSDictionary *result = nil;
+    XCTAssertNoThrow(result = [LBPosterBoardInstaller installExtractedDescriptorTreeAtPath:input descriptorRoot:descriptorRoot error:&error]);
+    XCTAssertNil(result);
+    XCTAssertEqual(error.code, 24);
+    XCTAssertFalse([[NSFileManager defaultManager] fileExistsAtPath:descriptorRoot]);
+}
+
+- (void)testNonDictionaryWallpaperPlistIsRejectedWithoutThrowing {
+    NSString *input = [self makeDescriptorGroupWithNames:@[@"Invalid wallpaper root"] missingFiles:[NSSet set]];
+    NSString *wallpaperPath = [input stringByAppendingPathComponent:@"descriptors/fixture-1/versions/1/contents/Fixture1.Custom.wallpaper/Wallpaper.plist"];
+    XCTAssertTrue([self writePlist:@"not a dictionary" toPath:wallpaperPath]);
+
+    NSString *descriptorRoot = [self.temporaryRoot stringByAppendingPathComponent:@"PosterBoard/59/Extensions/com.apple.WallpaperKit.CollectionsPoster/descriptors"];
+    NSError *error = nil;
+    NSDictionary *result = nil;
+    XCTAssertNoThrow(result = [LBPosterBoardInstaller installExtractedDescriptorTreeAtPath:input descriptorRoot:descriptorRoot error:&error]);
+    XCTAssertNil(result);
+    XCTAssertEqual(error.code, 26);
+    XCTAssertFalse([[NSFileManager defaultManager] fileExistsAtPath:descriptorRoot]);
+}
+
+- (void)testMissingDefaultLayerIdentifierIsAddedDuringRewrite {
+    NSString *input = [self makeDescriptorGroupWithNames:@[@"Missing layer identifier"] missingFiles:[NSSet set]];
+    NSString *wallpaperPath = [input stringByAppendingPathComponent:@"descriptors/fixture-1/versions/1/contents/Fixture1.Custom.wallpaper/Wallpaper.plist"];
+    NSMutableDictionary *wallpaper = [[NSDictionary dictionaryWithContentsOfFile:wallpaperPath] mutableCopy];
+    NSMutableDictionary *assets = [wallpaper[@"assets"] mutableCopy];
+    NSMutableDictionary *lockAndHome = [assets[@"lockAndHome"] mutableCopy];
+    NSMutableDictionary *defaultLayer = [lockAndHome[@"default"] mutableCopy];
+    [defaultLayer removeObjectForKey:@"identifier"];
+    lockAndHome[@"default"] = defaultLayer;
+    assets[@"lockAndHome"] = lockAndHome;
+    wallpaper[@"assets"] = assets;
+    XCTAssertTrue([self writePlist:wallpaper toPath:wallpaperPath]);
+
+    NSDictionary *result = [self install:input];
+    NSString *descriptorRoot = [self.temporaryRoot stringByAppendingPathComponent:@"PosterBoard/59/Extensions/com.apple.WallpaperKit.CollectionsPoster/descriptors"];
+    NSString *uuid = [result[@"installedDescriptorIdentifiers"] firstObject];
+    NSString *published = [descriptorRoot stringByAppendingPathComponent:uuid];
+    NSString *rootID = [NSString stringWithContentsOfFile:[published stringByAppendingPathComponent:@"com.apple.posterkit.provider.descriptor.identifier"]
+        encoding:NSUTF8StringEncoding error:nil];
+    NSString *publishedWallpaper = [published stringByAppendingPathComponent:@"versions/1/contents/Fixture1.Custom.wallpaper/Wallpaper.plist"];
+    NSDictionary *rewritten = [NSDictionary dictionaryWithContentsOfFile:publishedWallpaper];
+    XCTAssertEqualObjects(rewritten[@"assets"][@"lockAndHome"][@"default"][@"identifier"], @(rootID.integerValue));
+}
+
+- (void)testOrderedDescriptorsReceiveDescendingIDsInStableNameOrder {
+    NSString *input = [self makeDescriptorGroupWithNames:@[@"One", @"Two"] missingFiles:[NSSet set]];
+    NSString *regularGroup = [input stringByAppendingPathComponent:@"descriptors"];
+    NSString *orderedGroup = [input stringByAppendingPathComponent:@"collection-ordered-descriptors"];
+    NSError *moveError = nil;
+    XCTAssertTrue([[NSFileManager defaultManager] moveItemAtPath:regularGroup toPath:orderedGroup error:&moveError], @"%@", moveError);
+
+    NSDictionary *result = [self install:input];
+    NSArray<NSString *> *identifiers = result[@"installedDescriptorIdentifiers"];
+    XCTAssertEqual(identifiers.count, 2u);
+    NSString *descriptorRoot = [self.temporaryRoot stringByAppendingPathComponent:@"PosterBoard/59/Extensions/com.apple.WallpaperKit.CollectionsPoster/descriptors"];
+    NSMutableArray<NSNumber *> *numericIDs = [NSMutableArray array];
+    NSMutableArray<NSString *> *wallpaperNames = [NSMutableArray array];
+    NSUInteger descriptorIndex = 0;
+    for (NSString *uuid in identifiers) {
+        descriptorIndex++;
+        NSString *path = [descriptorRoot stringByAppendingPathComponent:uuid];
+        NSString *text = [NSString stringWithContentsOfFile:[path stringByAppendingPathComponent:@"com.apple.posterkit.provider.descriptor.identifier"]
+            encoding:NSUTF8StringEncoding error:nil];
+        [numericIDs addObject:@(text.integerValue)];
+        NSString *wallpaperName = [NSString stringWithFormat:@"Fixture%lu.Custom.wallpaper", (unsigned long)descriptorIndex];
+        NSString *wallpaperPath = [[path stringByAppendingPathComponent:@"versions/1/contents"] stringByAppendingPathComponent:wallpaperName];
+        wallpaperPath = [wallpaperPath stringByAppendingPathComponent:@"Wallpaper.plist"];
+        NSDictionary *wallpaper = [NSDictionary dictionaryWithContentsOfFile:wallpaperPath];
+        [wallpaperNames addObject:wallpaper[@"name"] ?: @""];
+    }
+    XCTAssertEqualObjects(wallpaperNames, (@[@"One", @"Two"]));
+    XCTAssertGreaterThan(numericIDs[0], numericIDs[1]);
+}
+
 - (void)testInstallsMultipleDescriptorsWithUniqueUUIDsAndNumericIDs {
     NSString *input = [self makeDescriptorGroupWithNames:@[@"One", @"Two"] missingFiles:[NSSet set]];
     NSDictionary *result = [self install:input];

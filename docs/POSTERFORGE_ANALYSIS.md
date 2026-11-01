@@ -17,7 +17,7 @@ The analysis refers to the public source currently reachable at the links below.
 | same | `removeIdentifier:error:` | Removes the descriptor path derived from the supplied identifier and then calls `refreshPosterBoard`. LumenBoard must enforce its own validated identifier, root containment and ownership checks; it must not copy an unchecked path-join pattern. |
 | same | `importTendiesAtPath:error:` | Lists archive members, rejects obvious absolute paths, backslashes and `..`, extracts to a temporary directory, searches for descriptor directories, copies child descriptor directories into the store, randomizes IDs and refreshes. This is a useful reference, not a sufficient security model for LumenBoard. |
 | same | `randomizeDescriptorAtPath:` | Rewrites the root descriptor identifier, `wallpaperRepresentingIdentifier`, the top-level `Wallpaper.plist` identifier, and `assets.lockAndHome.default.identifier`. |
-| same | `refreshPosterBoard` | Writes keys in `com.apple.PosterBoard.unprotectedUserDefaults.plist` and runs `killall -9 PosterBoard`. This is a privileged, disruptive operation and remains disabled in LumenBoard. |
+| same | `refreshPosterBoard` | Writes keys in `com.apple.PosterBoard.unprotectedUserDefaults.plist` and runs `killall -9 PosterBoard`. LumenBoard implements a separately bounded and diagnosed refresh request after publication; source code behavior here is reference only. |
 | [`Shared/PFShared.h`](https://github.com/mubixbyte/PosterForge/blob/main/Shared/PFShared.h), [`Shared/PFShared.m`](https://github.com/mubixbyte/PosterForge/blob/main/Shared/PFShared.m) | `PFNewIdentifier`, `PFPosterBoardContainer`, `PFQueueRequest`, `PFSaveItem`, `PFDeleteItem` | Defines UUID generation, container discovery, local manifest/request/completion paths and the daemon request queue. |
 | [`Daemon/main.m`](https://github.com/mubixbyte/PosterForge/blob/main/Daemon/main.m) | `ProcessRequests`, `NotificationCallback`, `main` | Processes `install`, `remove` and `tendies` requests, records completion results, and watches the Darwin notification plus a polling timer. |
 
@@ -42,12 +42,12 @@ The [PosterForge README](https://github.com/mubixbyte/PosterForge) claims suppor
 
 ## Findings that affect LumenBoard design
 
-1. Do not enable native writes just because the metadata can be serialized. The exact iOS build, device-specific `logicalScreenClass`, CAML parser behavior and optional files remain unknown until compared with a real working iOS 16 reference.
+1. Keep runtime writes staged, validated and rollback-bounded. Metadata serialization alone does not prove compatibility. The exact iOS build, device-specific `logicalScreenClass`, CAML parser behavior and optional files remain unknown until compared with a real working iOS 16 reference.
 2. Generate in a staging directory and verify every write before publication. Do not delete an existing descriptor path during generation.
 3. Generate identifiers with collision checks, then update all fields and filename references from a verified mapping. Never reuse identifiers merely because they look UUID-like or numeric.
 4. Treat archive imports as hostile: inspect the ZIP before extraction; reject duplicate/aliased names, traversal, symlinks/special files and resource exhaustion. The portable inspector's stronger checks do not imply that the iOS UI currently invokes it.
 5. Limit remove/update operations to descriptors recorded as LumenBoard-owned, with validated identifiers and safe canonical paths. Never remove an arbitrary path or mutate the whole PosterBoard container.
-6. Keep refresh, install, import and remove operations disabled until a recovery plan and on-device evidence exist. PosterForge's `killall -9 PosterBoard` is a reference behavior, not permission to enable it in LumenBoard.
+6. LumenBoard's import/publication and refresh code is implemented, but only structural publication is claimed. PosterForge's `killall -9 PosterBoard` is a reference behavior; LumenBoard uses its own bounded runner and reports the outcome separately. Removal remains unimplemented, and native gallery acceptance still requires on-device evidence.
 
 ## Reference fixture: not present
 

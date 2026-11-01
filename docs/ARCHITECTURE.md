@@ -41,7 +41,7 @@ The pane writes a bounded request with a fixed action allowlist. The daemon vali
 
 The native installer targets `Library/Application Support/PRBPosterExtensionDataStore/59/Extensions/com.apple.WallpaperKit.CollectionsPoster/descriptors` inside the discovered PosterBoard app container. It validates descriptor roots and required metadata, parses every `index.xml` as a property list and requires `rootDocument = main.caml` plus `assetManifest = assetManifest.caml`, rejects unsafe filesystem objects, assigns new UUID directory names and collision-checked numeric wallpaper identifiers, rewrites linked identifier fields, stages complete trees, and publishes by rename. Rollback is restricted to paths successfully published by the current invocation.
 
-Each animation bundle's `index.xml` is a binary property list, matching the public iOS 16 PosterForge writer despite the `.xml` suffix. The empty Floating layer uses a neutral 1×1 CAML canvas, also matching that writer. This is a reference-based compatibility correction, not proof of private-schema acceptance on the target device.
+Each animation bundle's `index.xml` is a binary property list, matching the public iOS 16 PosterForge writer despite the `.xml` suffix. It includes the pixel-units flag. The empty Floating layer uses a neutral 1×1 CAML canvas, also matching that writer. Before publishing, the installer parses CAML with external entity resolution disabled, checks each referenced asset is a safe relative path to a regular file, checks plist roots and nested ID fields have the expected types, and updates the default layer identifier even when it was absent. Groups named with `ordered-descriptor` are sorted by name and assigned descending numeric IDs to retain the displayed order. These are source-informed structural choices, not proof of private-schema acceptance on the target device.
 
 After publication, the implementation requests a PosterBoard refresh. This is separate from successful filesystem publication. UI status `registered-unverified` means descriptor records were published; it does not mean the item appeared in Collections, was selectable, or was applied as wallpaper.
 
@@ -50,7 +50,7 @@ After publication, the implementation requests a PosterBoard refresh. This is se
 - Automated XCTest runs on macOS with synthetic fixtures; it does not reproduce iOS launchd, actual container permissions, or PosterBoard rendering.
 - Package CI validates Debian metadata/archive, rootless paths, Mach-O architecture/signatures, Preferences bundle metadata, launchd plist, and maintainer-script behavior using a fake launchctl.
 - Device evidence is still required for dpkg configuration, daemon survival, successful `.tendies` import, native gallery visibility, selection, wallpaper rendering, and persistence after reboot.
-- Photo/video source import exists, but full conversion into PosterBoard animation descriptors is not claimed.
+- Photo/video sources are converted into static or frame-sequence descriptors, but generated output has not been confirmed in the native gallery or on the Lock/Home screens.
 - Removing a source from LumenBoard's local library does not remove its published PosterBoard descriptor. Safe descriptor cleanup requires a separate ownership index and rollback-safe implementation.
 
 Do not describe the package as fully working until all device-only evidence gates pass.

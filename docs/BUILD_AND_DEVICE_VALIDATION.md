@@ -1,17 +1,17 @@
 # Build, package, and device validation
 
-> **Current-state note (0.1.0-15):** the detailed build record below is a historical 0.1.0-9 snapshot, not evidence for the current package. The active candidate is maintained on `fix/rootless-deb-installation`; Debian version and Preferences `CFBundleVersion` are now `0.1.0-15`. The current commit-specific CI and artifact evidence is delivered in the final 0.1.0-15 audit report. Native PosterBoard gallery recognition and wallpaper application remain device-only checks.
+> **Current-state note (0.1.0-16):** the detailed build record below is a historical 0.1.0-9 snapshot, not evidence for this working tree. The active candidate is maintained on `fix/rootless-deb-installation`; Debian version and Preferences `CFBundleVersion` are 0.1.0-16 and 16. The audited local changes have not been built on this Windows machine because Theos and an iOS SDK are absent. Native PosterBoard gallery recognition and wallpaper application remain device-only checks.
 
 ## Current candidate contract
 
 - Package: `com.iuyghi.lumenboard`
-- Debian version: `0.1.0-15`
-- Preferences `CFBundleVersion`: `15`
+- Debian version: `0.1.0-16`
+- Preferences `CFBundleVersion`: `16`
 - Architecture: `iphoneos-arm64`
 - Working branch: `fix/rootless-deb-installation`
 - Main branch remains separate and unchanged.
 - The active workflow validates portable tests, macOS XCTest, rootless package construction and archive contents.
-- `index.xml` is emitted as an XML property list; the empty Floating layer is sized to the generated media canvas. The reference basis and remaining device-only compatibility gate are documented in the README. A successful build does not establish actual iPhone installation or PosterBoard rendering.
+- `index.xml` is emitted as a binary property list; the empty Floating layer is a neutral 1×1 canvas. CAML references and metadata types receive structural checks. This source-based format work does not establish actual iPhone installation or PosterBoard rendering.
 
 
 ## Historical verified candidate 0.1.0-9 (superseded)
@@ -58,7 +58,7 @@ Capture dpkg output, launchctl print output for both domains, daemon log, the ma
 - Build and automated tests: passed on the exact source commit listed above.
 - Installation on the user's iPhone: not performed by the assistant.
 - Native gallery visibility, selection, actual wallpaper rendering, persistence after reboot, and device-side upgrade/removal: not yet demonstrated.
-- Photo/video source import is local-only; a complete photo/video-to-CAML conversion pipeline is not claimed.
+- Photo/video descriptor generation and publication code exists; gallery visibility, selection, and actual rendering remain unverified on the target iPhone.
 - Removing a source from LumenBoard's local library does not remove a published PosterBoard descriptor.
 
 Treat the package as CI-verified, not device-validated.

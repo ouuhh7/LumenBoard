@@ -77,24 +77,22 @@ class NativeMediaPipelineContractTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, source)
 
-    def test_posterboard_index_xml_uses_xml_property_list_format(self):
+    def test_posterboard_index_xml_uses_binary_posterforge_property_list_format(self):
         source = (ROOT / "Daemon/LBPosterMediaBuilder.m").read_text()
-        self.assertIn("NSPropertyListXMLFormat_v1_0", source)
-        self.assertIn("LBMediaWriteXMLPlist(index", source)
-        self.assertIn('"dynamicGuidesEnabled":@YES', source)
-        self.assertIn('"presentationTouchEventsEnabled":@NO', source)
-        self.assertIn("documentResizesToView:NO scalesToFitInPlayer:NO", source)
-        self.assertIn("documentResizesToView:YES scalesToFitInPlayer:YES", source)
-        self.assertIn("outputWidth:&backgroundWidth outputHeight:&backgroundHeight", source)
-        self.assertIn("writeEmptyLayerAt:floating width:backgroundWidth height:backgroundHeight", source)
-        self.assertNotIn("LBMediaWritePlist(index", source)
+        self.assertIn("NSPropertyListBinaryFormat_v1_0", source)
+        self.assertIn('LBMediaWritePlist(index, [directory stringByAppendingPathComponent:@"index.xml"], error)', source)
+        self.assertIn('@"assetManifest":@"assetManifest.caml"', source)
+        self.assertIn('@"rootDocument":@"main.caml"', source)
+        self.assertIn('@"unitsInPixelsInPlayer":@YES', source)
+        self.assertNotIn("LBMediaWriteXMLPlist(index", source)
+        self.assertIn(r'version=\"1.0\"', source)
+        self.assertNotIn(r'version=\\"1.0\\"', source)
 
     def test_package_and_preferences_versions_are_synchronized(self):
         control = (ROOT / "control").read_text()
         match = re.search(r"^Version:\s*(\S+)$", control, re.MULTILINE)
         self.assertIsNotNone(match)
         package_version = match.group(1)
-        self.assertEqual(package_version, "0.1.0-15")
         bundle_info = plistlib.loads((ROOT / "Preferences/Info.plist").read_bytes())
         self.assertEqual(bundle_info["CFBundleVersion"], package_version.rsplit("-", 1)[1])
         workflow = (ROOT / ".github/workflows/native-validator.yml").read_text()

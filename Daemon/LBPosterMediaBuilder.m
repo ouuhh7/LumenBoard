@@ -65,14 +65,15 @@ static BOOL LBMediaWriteJPEG(UIImage *image, NSString *path, CGFloat quality, NS
         @"documentWidth":@(width),
         @"geometryFlipped":@NO,
         @"rootDocument":@"main.caml",
-        @"scalesToFitInPlayer":@(scalesToFitInPlayer)
+        @"scalesToFitInPlayer":@(scalesToFitInPlayer),
+        @"unitsInPixelsInPlayer":@YES
     };
     return LBMediaWritePlist(index, [directory stringByAppendingPathComponent:@"index.xml"], error);
 }
 
 + (BOOL)writeEmptyLayerAt:(NSString *)directory error:(NSError **)error {
     // The reference iOS 16 writer uses a neutral 1x1 empty Floating layer.
-    NSString *caml = @"<?xml version=\\"1.0\\" encoding=\\"UTF-8\\"?><caml xmlns=\\"http://www.apple.com/CoreAnimation/1.0\\"><CALayer bounds=\\"0 0 1 1\\" hidden=\\"0\\" name=\\"_FLOATING\\" position=\\"0.5 0.5\\"><sublayers/></CALayer></caml>";
+    NSString *caml = @"<?xml version=\"1.0\" encoding=\"UTF-8\"?><caml xmlns=\"http://www.apple.com/CoreAnimation/1.0\"><CALayer bounds=\"0 0 1 1\" hidden=\"0\" name=\"_FLOATING\" position=\"0.5 0.5\"><sublayers/></CALayer></caml>";
     return LBMediaWriteText(caml, [directory stringByAppendingPathComponent:@"main.caml"], error) &&
         [self writeIndexAt:directory width:1 height:1 documentResizesToView:YES scalesToFitInPlayer:YES error:error];
 }

@@ -29,9 +29,9 @@ On the iPhone X running iOS 16.7.16 with the exact Dopamine/RootHide build:
 
 Capture dpkg output, launchctl print output, daemon log, the relevant manifest and screenshots. Redact device identifiers before sharing.
 
-## Explicitly out of scope until separately implemented
+## Device-only acceptance gates
 
-- Complete photo/video-to-CAML conversion and native gallery publishing.
+- Native gallery appearance, preview, selection and wallpaper application for generated photo/video descriptors.
 - Safe removal of LumenBoard-owned descriptors from PosterBoard.
 - Claims that descriptor publication means gallery visibility or actual wallpaper application.
 - iOS 17+ or whole-container `.tendies` import.
@@ -48,7 +48,7 @@ A successful compile or DEB creation is a packaging check only. It is not eviden
 - On-device, inspect the returned diagnostic fields before deciding whether a restart is needed. Do not claim gallery visibility or wallpaper application from a successful process signal.
 
 
-## Current 0.1.0-15 refresh regression coverage
+## Current 0.1.0-16 refresh regression coverage
 
 The native XCTest suite now exercises the shared refresh process runner with temporary executable fixtures: ordered fallback selection, all candidates missing (ENOENT), spawn failure from a missing script interpreter, non-zero child exit, signal termination, a timeout that sends SIGKILL and reaps the child, a simulated ECHILD wait failure after child reaping, and the case where refresh flags are written but no executable exists. The portable contract test additionally guards the 15-second production timeout, both refresh call sites, waitpid(WNOHANG), EINTR, exit/signal distinctions, and the version contract across Debian control, Preferences CFBundleVersion, the build helper and CI workflow.
 
@@ -57,4 +57,4 @@ These tests validate process-management behavior on macOS, not the presence of a
 
 ## Media descriptor index contract
 
-`Daemon/LBPosterMediaBuilder.m` writes `index.xml` using `NSPropertyListXMLFormat_v1_0`, includes the public-reference index keys, and sizes the empty Floating layer to the same canvas as the Background. Portable contract tests guard this format and both size call sites. This is not a substitute for loading the generated wallpaper in PosterBoard on iOS 16.7.16.
+`Daemon/LBPosterMediaBuilder.m` writes `index.xml` as a binary property list, includes the public iOS 16 PosterForge index fields including `unitsInPixelsInPlayer`, and sizes the empty Floating layer to 1×1. Portable contract tests guard the writer contract. The installer parses CAML documents, rejects unsafe or missing asset references, validates plist root types, and updates the default layer identifier. Native XCTest cases cover these paths and ordered descriptor IDs. These structural checks are not a substitute for loading generated wallpapers in PosterBoard on iOS 16.7.16.

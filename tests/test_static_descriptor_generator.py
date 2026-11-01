@@ -45,11 +45,14 @@ class StaticDescriptorGeneratorTests(unittest.TestCase):
         index = plistlib.loads(background_index)
         self.assertEqual(set(index), {
             "assetManifest", "documentHeight", "documentResizesToView",
-            "documentWidth", "geometryFlipped", "rootDocument", "scalesToFitInPlayer",
+            "documentWidth", "geometryFlipped", "rootDocument",
+            "scalesToFitInPlayer", "unitsInPixelsInPlayer",
         })
+        self.assertIs(index["unitsInPixelsInPlayer"], True)
         floating_index = plistlib.loads((wallpaper / "PF_Floating.ca/index.xml").read_bytes())
         self.assertEqual(floating_index["documentWidth"], 1)
         self.assertEqual(floating_index["documentHeight"], 1)
+        self.assertIs(floating_index["unitsInPixelsInPlayer"], True)
         report = validate_descriptors_root(self.output)
         self.assertEqual(report["status"], "passes-structural-checks", report)
         self.assertEqual(report["errors"], [])
@@ -62,8 +65,11 @@ class StaticDescriptorGeneratorTests(unittest.TestCase):
         self.assertNotIn("LBMediaWriteXMLPlist", source)
         self.assertIn('@"geometryFlipped":@NO', source)
         self.assertIn('@"rootDocument":@"main.caml"', source)
-        self.assertIn('bounds="0 0 1 1"', source)
-        self.assertIn('position="0.5 0.5"', source)
+        self.assertIn('@"unitsInPixelsInPlayer":@YES', source)
+        self.assertIn(r'bounds=\"0 0 1 1\"', source)
+        self.assertIn(r'position=\"0.5 0.5\"', source)
+        self.assertIn(r'version=\"1.0\"', source)
+        self.assertNotIn(r'version=\\"1.0\\"', source)
         self.assertIn("writeEmptyLayerAt:floating error:error", source)
 
     def test_wallpaper_ids_are_unique_across_generated_descriptors(self):

@@ -324,6 +324,59 @@ static BOOL LBPathIsSafeRelative(NSString *path) {
     return YES;
 }
 
+@interface LBCAMLReferenceCollector : NSObject <NSXMLParserDelegate>
+@property(nonatomic, strong) NSMutableArray<NSString *> *references;
+@end
+
+@implementation LBCAMLReferenceCollector
+- (instancetype)init {
+    self = [super init];
+    if (self) _references = [NSMutableArray array];
+    return self;
+}
+
+- (void)parser:(NSXMLParser *)parser
+ didStartElement:(NSString *)elementName
+    namespaceURI:(NSString *)namespaceURI
+   qualifiedName:(NSString *)qualifiedName
+      attributes:(NSDictionary<NSString *, NSString *> *)attributeDict {
+    NSString *source = attributeDict[@"src"];
+    if (source) [self.references addObject:source];
+}
+@end
+
+static BOOL LBValidateCAMLDocumentAtPath(NSString *path, NSString *layerPath, NSError **error) {
+    NSURL *url = [NSURL fileURLWithPath:path];
+    NSXMLParser *parser = [[NSXMLParser alloc] initWithContentsOfURL:url];
+    if (!parser) {
+        if (error) *error = LBInstallError(33, [NSString stringWithFormat:@"Could not open CAML document: %@", path]);
+        return NO;
+    }
+    LBCAMLReferenceCollector *collector = [[LBCAMLReferenceCollector alloc] init];
+    parser.delegate = collector;
+    parser.shouldResolveExternalEntities = NO;
+    if (![parser parse]) {
+        NSString *detail = parser.parserError.localizedDescription ?: @"invalid XML";
+        if (error) *error = LBInstallError(33, [NSString stringWithFormat:@"Malformed CAML document %@: %@", path, detail]);
+        return NO;
+    }
+
+    for (NSString *reference in collector.references) {
+        if (!LBPathIsSafeRelative(reference) ||
+            [reference rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound ||
+            [reference containsString:@":"]) {
+            if (error) *error = LBInstallError(34, [NSString stringWithFormat:@"Unsafe CAML asset reference in %@: %@", path, reference]);
+            return NO;
+        }
+        NSString *assetPath = [layerPath stringByAppendingPathComponent:reference];
+        if (!LBIsRegularFile(assetPath)) {
+            if (error) *error = LBInstallError(35, [NSString stringWithFormat:@"CAML asset reference does not resolve to a regular file: %@ (%@)", reference, path]);
+            return NO;
+        }
+    }
+    return YES;
+}
+
 static BOOL LBValidateDescriptorTree(NSString *root, NSError **error) {
     if (!LBIsDirectory(root)) {
         if (error) *error = LBInstallError(20, @"A descriptor entry is not a regular directory.");
@@ -372,10 +425,15 @@ static BOOL LBValidateDescriptorTree(NSString *root, NSError **error) {
         if ([last isEqualToString:@"com.apple.posterkit.provider.contents.userInfo"]) {
             if (!LBIsRegularFile(full)) continue;
             NSData *data = [NSData dataWithContentsOfFile:full];
-            NSDictionary *userInfo = data ? [NSPropertyListSerialization propertyListWithData:data options:NSPropertyListMutableContainers format:nil error:nil] : nil;
+            id userInfoObject = data ? [NSPropertyListSerialization propertyListWithData:data options:NSPropertyListMutableContainers format:nil error:nil] : nil;
+            if (![userInfoObject isKindOfClass:NSDictionary.class]) {
+                if (error) *error = LBInstallError(24, @"provider contents user-info is not a property-list dictionary.");
+                return NO;
+            }
+            NSDictionary *userInfo = userInfoObject;
             NSString *representingName = [userInfo[@"wallpaperRepresentingFileName"] isKindOfClass:NSString.class] ? userInfo[@"wallpaperRepresentingFileName"] : nil;
             id representingID = userInfo[@"wallpaperRepresentingIdentifier"];
-            if (![userInfo isKindOfClass:NSDictionary.class] || !representingName.length ||
+            if (!representingName.length ||
                 !LBPathIsSafeRelative(representingName) ||
                 [representingName rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound ||
                 [representingName containsString:@":"] ||
@@ -396,7 +454,12 @@ static BOOL LBValidateDescriptorTree(NSString *root, NSError **error) {
         if ([last caseInsensitiveCompare:@"Wallpaper.plist"] == NSOrderedSame) {
             if (!LBIsRegularFile(full)) continue;
             NSData *data = [NSData dataWithContentsOfFile:full];
-            NSDictionary *wallpaper = data ? [NSPropertyListSerialization propertyListWithData:data options:NSPropertyListMutableContainers format:nil error:nil] : nil;
+            id wallpaperObject = data ? [NSPropertyListSerialization propertyListWithData:data options:NSPropertyListMutableContainers format:nil error:nil] : nil;
+            if (![wallpaperObject isKindOfClass:NSDictionary.class]) {
+                if (error) *error = LBInstallError(26, [NSString stringWithFormat:@"Wallpaper.plist root is not a dictionary: %@", file]);
+                return NO;
+            }
+            NSDictionary *wallpaper = wallpaperObject;
             NSDictionary *assets = [wallpaper[@"assets"] isKindOfClass:NSDictionary.class] ? wallpaper[@"assets"] : nil;
             NSDictionary *lockAndHome = [assets[@"lockAndHome"] isKindOfClass:NSDictionary.class] ? assets[@"lockAndHome"] : nil;
             NSDictionary *defaults = [lockAndHome[@"default"] isKindOfClass:NSDictionary.class] ? lockAndHome[@"default"] : nil;
@@ -424,6 +487,7 @@ static BOOL LBValidateDescriptorTree(NSString *root, NSError **error) {
                     if (error) *error = LBInstallError(29, [NSString stringWithFormat:@"CAML layer is missing index.xml or main.caml: %@", layerPath]);
                     return NO;
                 }
+                if (!LBValidateCAMLDocumentAtPath(rootDocumentPath, layerPath, error)) return NO;
                 NSData *indexData = [NSData dataWithContentsOfFile:indexPath];
                 NSPropertyListFormat indexFormat = NSPropertyListOpenStepFormat;
                 id indexObject = indexData ?
@@ -478,13 +542,17 @@ static BOOL LBRewriteDescriptorIdentifiers(NSString *root, NSInteger numericID, 
                 return NO;
             }
             wallpaper[@"identifier"] = @(numericID);
-            NSMutableDictionary *assets = [wallpaper[@"assets"] mutableCopy];
-            NSMutableDictionary *lockAndHome = [assets[@"lockAndHome"] mutableCopy];
-            NSMutableDictionary *defaults = [lockAndHome[@"default"] mutableCopy];
-            if (defaults && defaults[@"identifier"]) defaults[@"identifier"] = @(numericID);
-            if (defaults) lockAndHome[@"default"] = defaults;
-            if (lockAndHome) assets[@"lockAndHome"] = lockAndHome;
-            if (assets) wallpaper[@"assets"] = assets;
+            NSMutableDictionary *assets = [wallpaper[@"assets"] isKindOfClass:NSDictionary.class] ? [wallpaper[@"assets"] mutableCopy] : nil;
+            NSMutableDictionary *lockAndHome = [assets[@"lockAndHome"] isKindOfClass:NSDictionary.class] ? [assets[@"lockAndHome"] mutableCopy] : nil;
+            NSMutableDictionary *defaults = [lockAndHome[@"default"] isKindOfClass:NSDictionary.class] ? [lockAndHome[@"default"] mutableCopy] : nil;
+            if (!assets || !lockAndHome || !defaults) {
+                if (error) *error = LBInstallError(31, @"Cannot rewrite Wallpaper.plist default layer identifiers.");
+                return NO;
+            }
+            defaults[@"identifier"] = @(numericID);
+            lockAndHome[@"default"] = defaults;
+            assets[@"lockAndHome"] = lockAndHome;
+            wallpaper[@"assets"] = assets;
             NSData *rewritten = [NSPropertyListSerialization dataWithPropertyList:wallpaper format:NSPropertyListBinaryFormat_v1_0 options:0 error:error];
             if (!rewritten || !LBWriteDataAtomically(rewritten, full, error)) return NO;
         }
@@ -492,15 +560,21 @@ static BOOL LBRewriteDescriptorIdentifiers(NSString *root, NSInteger numericID, 
     return YES;
 }
 
-static BOOL LBCollectDescriptorRoots(NSString *extractedPath, NSMutableArray<NSString *> *roots, NSError **error) {
+static BOOL LBCollectDescriptorRoots(NSString *extractedPath, NSMutableArray<NSString *> *roots,
+                                     BOOL *orderedGroupOut, NSError **error) {
     NSDirectoryEnumerator *enumerator = [NSFileManager.defaultManager enumeratorAtPath:extractedPath];
     NSString *relative = nil;
     NSMutableArray<NSString *> *candidates = [NSMutableArray array];
+    BOOL orderedGroup = NO;
+    if (orderedGroupOut) *orderedGroupOut = NO;
     while ((relative = enumerator.nextObject)) {
         NSString *full = [extractedPath stringByAppendingPathComponent:relative];
         if (!LBIsDirectory(full)) continue;
         NSString *name = relative.lastPathComponent.lowercaseString;
-        if ([name isEqualToString:@"descriptor"] || [name isEqualToString:@"descriptors"]) {
+        // Nugget detects this marker by substring so archives can add the
+        // ordered prefix or suffix while retaining a descriptive group name.
+        BOOL isOrderedGroup = [name containsString:@"ordered-descriptor"];
+        if ([name isEqualToString:@"descriptor"] || [name isEqualToString:@"descriptors"] || isOrderedGroup) {
             NSArray<NSString *> *parts = [relative.lowercaseString componentsSeparatedByString:@"/"];
             BOOL unsupportedVariant = NO;
             for (NSString *part in parts) {
@@ -512,15 +586,22 @@ static BOOL LBCollectDescriptorRoots(NSString *extractedPath, NSMutableArray<NSS
                 return NO;
             }
             [candidates addObject:full];
+            orderedGroup = isOrderedGroup;
             [enumerator skipDescendants];
         }
     }
+    if (orderedGroupOut) *orderedGroupOut = orderedGroup;
     if (candidates.count != 1) {
-        if (error) *error = LBInstallError(41, @"Expected exactly one descriptor/descriptors group for the iOS 16 Collections extension.");
+        if (error) *error = LBInstallError(41, @"Expected exactly one descriptor, descriptors, or ordered-descriptor(s) group for the iOS 16 Collections extension.");
         return NO;
     }
     NSArray<NSString *> *children = [NSFileManager.defaultManager contentsOfDirectoryAtPath:candidates.firstObject error:error];
     if (!children) return NO;
+    if (orderedGroup) {
+        children = [children sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
+            return [a compare:b options:NSLiteralSearch];
+        }];
+    }
     for (NSString *child in children) {
         if ([child hasPrefix:@"."] || [child isEqualToString:@"__MACOSX"]) continue;
         NSString *path = [candidates.firstObject stringByAppendingPathComponent:child];
@@ -760,7 +841,8 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
         return nil;
     }
     NSMutableArray<NSString *> *sourceRoots = [NSMutableArray array];
-    if (!LBCollectDescriptorRoots(extractedPath, sourceRoots, error)) return nil;
+    BOOL orderedGroup = NO;
+    if (!LBCollectDescriptorRoots(extractedPath, sourceRoots, &orderedGroup, error)) return nil;
     for (NSString *source in sourceRoots) if (!LBValidateDescriptorTree(source, error)) return nil;
 
     NSString *extensionRoot = descriptorRoot.stringByDeletingLastPathComponent;
@@ -789,9 +871,15 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
         }
         if (![NSFileManager.defaultManager copyItemAtPath:source toPath:staged error:&localError]) { success = NO; break; }
         NSInteger identifier = 0;
-        for (NSUInteger attempt = 0; attempt < 1000; attempt++) {
-            NSInteger candidate = 10000 + arc4random_uniform(90000);
-            if (![usedIDs containsObject:@(candidate)]) { identifier = candidate; break; }
+        if (orderedGroup) {
+            for (NSInteger candidate = 99999; candidate >= 10000; candidate--) {
+                if (![usedIDs containsObject:@(candidate)]) { identifier = candidate; break; }
+            }
+        } else {
+            for (NSUInteger attempt = 0; attempt < 1000; attempt++) {
+                NSInteger candidate = 10000 + arc4random_uniform(90000);
+                if (![usedIDs containsObject:@(candidate)]) { identifier = candidate; break; }
+            }
         }
         if (!identifier) {
             localError = LBInstallError(62, @"Could not allocate a collision-free PosterBoard wallpaper identifier.");
