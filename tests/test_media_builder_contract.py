@@ -110,6 +110,17 @@ class NativeMediaPipelineContractTests(unittest.TestCase):
         self.assertIn('@"install-media"', source)
         self.assertIn('mediaInstall ? @"installed" : @"descriptors-published"', source)
 
+    def test_legacy_tendies_verification_recovers_ids_from_saved_installation_report(self):
+        source = (ROOT / "Daemon/main.m").read_text()
+        start = source.index("static NSDictionary *LBVerifyManagedTendiesRegistration")
+        end = source.index("static NSDictionary *LBProcessMediaInstallRequest", start)
+        verification = source[start:end]
+        self.assertIn('manifest[@"installedDescriptorIdentifiers"]', verification)
+        self.assertIn('manifest[@"installationReport"]', verification)
+        self.assertIn('legacyReport[@"installedDescriptorIdentifiers"]', verification)
+        self.assertIn('reportedIdentifiers.count <= 256', verification)
+        self.assertIn("no filesystem-wide guess or duplicate publication was attempted", verification)
+
 
 if __name__ == "__main__":
     unittest.main()
