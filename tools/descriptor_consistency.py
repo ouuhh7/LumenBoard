@@ -188,7 +188,7 @@ def _validate_one(descriptor: Path, report: dict[str, Any], seen_descriptor_ids:
         return None
 
     logical_screen_class = metadata.get("logicalScreenClass")
-    if not isinstance(logical_screen_class, str) or not re.fullmatch(r"[1-9]\\d*w-[1-9]\\d*h@[1-9]\\d*x~[A-Za-z0-9_-]+", logical_screen_class):
+    if not isinstance(logical_screen_class, str) or not re.fullmatch(r"[1-9][0-9]*w-[1-9][0-9]*h@[1-9][0-9]*x~[A-Za-z0-9_-]+", logical_screen_class):
         report["errors"].append(f"{root_label}: Wallpaper.plist logicalScreenClass is missing or malformed")
         logical_screen_class = None
     elif expected_screen_class is not None and logical_screen_class != expected_screen_class:
@@ -293,7 +293,7 @@ def _validate_one(descriptor: Path, report: dict[str, Any], seen_descriptor_ids:
 
 
 def validate_descriptors_root(root: Path, expected_screen_class: str | None = None) -> dict[str, Any]:
-    if expected_screen_class is not None and not re.fullmatch(r"[1-9]\\d*w-[1-9]\\d*h@[1-9]\\d*x~[A-Za-z0-9_-]+", expected_screen_class):
+    if expected_screen_class is not None and not re.fullmatch(r"[1-9][0-9]*w-[1-9][0-9]*h@[1-9][0-9]*x~[A-Za-z0-9_-]+", expected_screen_class):
         raise ConsistencyError("expected screen class must use the observed WIDTHw-HEIGHTh@SCALEx~DEVICE format")
     base = root.absolute()
     report: dict[str, Any] = {
