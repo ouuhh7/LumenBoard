@@ -2,29 +2,6 @@
 #import "../../Daemon/LBPosterBoardInstaller.h"
 #import <sys/stat.h>
 #import <unistd.h>
-#import <signal.h>
-#import <sys/wait.h>
-#import <errno.h>
-
-static pid_t LBTestWaitPIDFailureAfterReap(pid_t pid, int *status, int options) {
-    if (options & WNOHANG) {
-        kill(pid, SIGKILL);
-        pid_t waited;
-        do { waited = waitpid(pid, status, 0); } while (waited < 0 && errno == EINTR);
-        errno = ECHILD;
-        return -1;
-    }
-    return waitpid(pid, status, options);
-}
-
-@interface LBPosterBoardInstaller (RefreshTesting)
-+ (NSDictionary *)runRefreshCommandForTestingWithCandidates:(NSArray<NSString *> *)candidates
-                                                processName:(NSString *)processName
-                                                     timeout:(NSTimeInterval)timeout
-                                                waitFunction:(pid_t (*)(pid_t, int *, int))waitFunction;
-+ (NSDictionary *)requestPosterBoardRefreshForContainer:(NSString *)containerPath
-                                       killallCandidates:(NSArray<NSString *> *)candidates;
-@end
 
 @interface LBPosterBoardInstallerTests : XCTestCase
 @property(nonatomic, copy) NSString *temporaryRoot;
@@ -45,15 +22,6 @@ static pid_t LBTestWaitPIDFailureAfterReap(pid_t pid, int *status, int options) 
 - (void)tearDown {
     if (self.temporaryRoot.length) [[NSFileManager defaultManager] removeItemAtPath:self.temporaryRoot error:nil];
     [super tearDown];
-}
-
-- (NSString *)writeExecutableScript:(NSString *)name body:(NSString *)body {
-    NSString *path = [self.temporaryRoot stringByAppendingPathComponent:name];
-    NSString *script = [NSString stringWithFormat:@"#!/bin/sh\n%@\n", body];
-    NSError *error = nil;
-    XCTAssertTrue([script writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:&error], @"%@", error);
-    XCTAssertEqual(chmod(path.fileSystemRepresentation, 0755), 0);
-    return path;
 }
 
 - (BOOL)writePlist:(id)object toPath:(NSString *)path {
@@ -462,99 +430,23 @@ static pid_t LBTestWaitPIDFailureAfterReap(pid_t pid, int *status, int options) 
     XCTAssertEqualObjects(missing[@"missingDescriptorCount"], @1);
 }
 
-- (void)testRefreshResolverSkipsMissingCandidatesAndUsesFirstExecutable {
-    NSString *missing = [self.temporaryRoot stringByAppendingPathComponent:@"missing-killall"];
-    NSString *first = [self writeExecutableScript:@"first-killall" body:@"exit 0"];
-    NSString *second = [self writeExecutableScript:@"second-killall" body:@"exit 23"];
-    NSDictionary *result = [LBPosterBoardInstaller runRefreshCommandForTestingWithCandidates:@[missing, first, second]
-        processName:@"PosterBoard" timeout:2.0 waitFunction:NULL];
-    XCTAssertEqualObjects(result[@"refreshExecutable"], first);
-    XCTAssertEqualObjects(result[@"refreshCandidatePaths"], (@[missing, first]));
-    XCTAssertEqualObjects(result[@"posterBoardRefreshRequested"], @YES);
-    XCTAssertEqualObjects(result[@"refreshProcessExitStatus"], @0);
-    XCTAssertEqualObjects(result[@"refreshProcessTimedOut"], @NO);
-}
-
-- (void)testRefreshReportsENOENTWhenNoCandidateExists {
-    NSString *missingA = [self.temporaryRoot stringByAppendingPathComponent:@"missing-a"];
-    NSString *missingB = [self.temporaryRoot stringByAppendingPathComponent:@"missing-b"];
-    NSDictionary *result = [LBPosterBoardInstaller runRefreshCommandForTestingWithCandidates:@[missingA, missingB]
-        processName:@"PosterBoard" timeout:1.0 waitFunction:NULL];
-    XCTAssertEqualObjects(result[@"refreshSpawnResult"], @(ENOENT));
-    XCTAssertEqualObjects(result[@"refreshExecutable"], @"");
-    XCTAssertEqualObjects(result[@"refreshCandidatePaths"], (@[missingA, missingB]));
-    XCTAssertEqualObjects(result[@"posterBoardRefreshRequested"], @NO);
-}
-
-- (void)testRefreshReportsPosixSpawnFailureForMissingInterpreter {
-    NSString *script = [self writeExecutableScript:@"broken-interpreter"
-        body:@"exit 0"];
-    NSString *contents = @"#!/path/that/does/not/exist\nexit 0\n";
-    NSError *error = nil;
-    XCTAssertTrue([contents writeToFile:script atomically:YES encoding:NSUTF8StringEncoding error:&error], @"%@", error);
-    XCTAssertEqual(chmod(script.fileSystemRepresentation, 0755), 0);
-    NSDictionary *result = [LBPosterBoardInstaller runRefreshCommandForTestingWithCandidates:@[script]
-        processName:@"PosterBoard" timeout:1.0 waitFunction:NULL];
-    XCTAssertEqualObjects(result[@"refreshExecutable"], script);
-    XCTAssertEqualObjects(result[@"refreshSpawnResult"], @(ENOENT));
-    XCTAssertEqualObjects(result[@"posterBoardRefreshRequested"], @NO);
-}
-
-- (void)testRefreshReportsNonzeroChildExit {
-    NSString *script = [self writeExecutableScript:@"nonzero-killall" body:@"exit 23"];
-    NSDictionary *result = [LBPosterBoardInstaller runRefreshCommandForTestingWithCandidates:@[script]
-        processName:@"PosterBoard" timeout:1.0 waitFunction:NULL];
-    XCTAssertEqualObjects(result[@"refreshSpawnResult"], @0);
-    XCTAssertEqualObjects(result[@"refreshProcessExitStatus"], @23);
-    XCTAssertEqualObjects(result[@"posterBoardRefreshRequested"], @NO);
-}
-
-- (void)testRefreshReportsChildSignalTermination {
-    NSString *script = [self writeExecutableScript:@"signalled-killall" body:@"kill -TERM $$"];
-    NSDictionary *result = [LBPosterBoardInstaller runRefreshCommandForTestingWithCandidates:@[script]
-        processName:@"PosterBoard" timeout:2.0 waitFunction:NULL];
-    XCTAssertEqualObjects(result[@"refreshSpawnResult"], @0);
-    XCTAssertEqualObjects(result[@"refreshProcessTerminationSignal"], @(SIGTERM));
-    XCTAssertEqualObjects(result[@"posterBoardRefreshRequested"], @NO);
-}
-
-- (void)testRefreshTimeoutKillsAndReapsChild {
-    NSString *script = [self writeExecutableScript:@"slow-killall" body:@"exec /bin/sleep 30"];
-    NSDictionary *result = [LBPosterBoardInstaller runRefreshCommandForTestingWithCandidates:@[script]
-        processName:@"PosterBoard" timeout:0.15 waitFunction:NULL];
-    XCTAssertEqualObjects(result[@"refreshSpawnResult"], @0);
-    XCTAssertEqualObjects(result[@"refreshProcessTimedOut"], @YES);
-    XCTAssertEqualObjects(result[@"refreshProcessTerminationSignal"], @(SIGKILL));
-    XCTAssertEqualObjects(result[@"posterBoardRefreshRequested"], @NO);
-}
-
-
-- (void)testRefreshReportsWaitFailureWithoutSignallingAnUnrelatedPID {
-    NSString *script = [self writeExecutableScript:@"wait-error-killall" body:@"exec /bin/sleep 30"];
-    NSDictionary *result = [LBPosterBoardInstaller runRefreshCommandForTestingWithCandidates:@[script]
-        processName:@"PosterBoard" timeout:5.0 waitFunction:LBTestWaitPIDFailureAfterReap];
-    XCTAssertEqualObjects(result[@"refreshSpawnResult"], @0);
-    XCTAssertEqualObjects(result[@"refreshWaitErrno"], @(ECHILD));
-    XCTAssertEqualObjects(result[@"posterBoardRefreshRequested"], @NO);
-    XCTAssertEqualObjects(result[@"refreshProcessTimedOut"], @NO);
-}
-
-- (void)testRefreshFlagsCanBeWrittenWhenNoExecutableIsAvailable {
+- (void)testRefreshFlagsAreWrittenWithoutTerminatingSystemProcesses {
     NSString *container = [self.temporaryRoot stringByAppendingPathComponent:@"PosterBoardContainer"];
     NSString *preferencesDirectory = [container stringByAppendingPathComponent:@"Library/Preferences"];
     NSError *error = nil;
     XCTAssertTrue([[NSFileManager defaultManager] createDirectoryAtPath:preferencesDirectory
         withIntermediateDirectories:YES attributes:nil error:&error], @"%@", error);
-    NSDictionary *result = [LBPosterBoardInstaller requestPosterBoardRefreshForContainer:container
-        killallCandidates:@[]];
+
+    NSDictionary *result = [LBPosterBoardInstaller requestPosterBoardRefreshForContainer:container];
     XCTAssertEqualObjects(result[@"refreshPreferencesWritten"], @YES);
+    XCTAssertEqualObjects(result[@"refreshCommandAttempted"], @NO);
     XCTAssertEqualObjects(result[@"posterBoardRefreshRequested"], @NO);
-    XCTAssertEqualObjects(result[@"refreshSpawnResult"], @(ENOENT));
+    XCTAssertEqualObjects(result[@"posterBoardRefreshRequiresDeviceRestart"], @YES);
     XCTAssertNotNil(result[@"refreshWarning"]);
+
     NSString *preferencesPath = [preferencesDirectory stringByAppendingPathComponent:@"com.apple.PosterBoard.unprotectedUserDefaults.plist"];
     NSDictionary *preferences = [NSDictionary dictionaryWithContentsOfFile:preferencesPath];
     XCTAssertEqualObjects(preferences[@"PBF_LOCALE_DID_CHANGE"], @NO);
     XCTAssertEqualObjects(preferences[@"PBF_RESET_FILE_PROTECTIONS"], @YES);
 }
-
 @end
