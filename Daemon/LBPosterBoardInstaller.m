@@ -16,6 +16,8 @@ static NSString * const LBIssueDomain = @"com.iuyghi.LumenBoard.PosterBoardInsta
 static NSString * const LBCollectionsExtension = @"com.apple.WallpaperKit.CollectionsPoster";
 static const NSInteger LBExpectedStructureVersion = 59;
 
+static NSError *LBInstallError(NSInteger code, NSString *message);
+
 static NSString *LBDeviceFamilyForMachineIdentifier(NSString *machineIdentifier) {
     if ([machineIdentifier hasPrefix:@"iPhone"]) return @"iphone";
     if ([machineIdentifier hasPrefix:@"iPad"]) return @"ipad";
@@ -36,6 +38,10 @@ static BOOL LBValidateDeviceFamilyForLogicalScreenClass(NSString *logicalScreenC
                                                         NSError **error) {
     NSString *deviceFamily = LBDeviceFamilyForMachineIdentifier(machineIdentifier);
     if (!deviceFamily) return YES; // Unknown host (including macOS XCTest) is not a device verdict.
+    if (![logicalScreenClass isKindOfClass:NSString.class]) {
+        if (error) *error = LBInstallError(36, @"Wallpaper logicalScreenClass is missing or is not a string.");
+        return NO;
+    }
     NSString *targetFamily = [[logicalScreenClass componentsSeparatedByString:@"~"] lastObject];
     if (![targetFamily isEqualToString:@"iphone"] && ![targetFamily isEqualToString:@"ipad"]) {
         if (error) *error = LBInstallError(36, [NSString stringWithFormat:
