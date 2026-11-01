@@ -157,7 +157,7 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$INFO")" = "LumenBoardPrefs"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundlePackageType' "$INFO")" = "BNDL"
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSPrincipalClass' "$INFO")" = "LumenBoardRootListController"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$INFO")" = "15"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$INFO")" = "16"
 
           test -x "$PREFS"
           test -x "$DAEMON"
