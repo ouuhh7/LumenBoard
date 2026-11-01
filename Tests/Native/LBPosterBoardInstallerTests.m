@@ -298,7 +298,7 @@ static pid_t LBTestWaitPIDFailureAfterReap(pid_t pid, int *status, int options) 
         [wallpaperNames addObject:wallpaper[@"name"] ?: @""];
     }
     XCTAssertEqualObjects(wallpaperNames, (@[@"One", @"Two"]));
-    XCTAssertGreaterThan(numericIDs[0], numericIDs[1]);
+    XCTAssertGreaterThan(numericIDs[0].longLongValue, numericIDs[1].longLongValue);
 }
 
 - (void)testInstallsMultipleDescriptorsWithUniqueUUIDsAndNumericIDs {
