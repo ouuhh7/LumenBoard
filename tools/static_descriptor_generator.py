@@ -150,7 +150,6 @@ def _write_layer(ca_dir: Path, *, width: int, height: int, image: bool) -> None:
             "geometryFlipped": False,
             "rootDocument": "main.caml",
             "scalesToFitInPlayer": True,
-            "unitsInPixelsInPlayer": True,
         }
     else:
         caml = (
@@ -167,7 +166,6 @@ def _write_layer(ca_dir: Path, *, width: int, height: int, image: bool) -> None:
             "geometryFlipped": False,
             "rootDocument": "main.caml",
             "scalesToFitInPlayer": True,
-            "unitsInPixelsInPlayer": True,
         }
     (ca_dir / "main.caml").write_text(caml, encoding="utf-8")
     # PosterForge's observed writer references assetManifest.caml in index.xml
