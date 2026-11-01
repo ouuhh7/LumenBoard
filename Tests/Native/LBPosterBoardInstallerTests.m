@@ -153,6 +153,32 @@
     XCTAssertEqualObjects(wallpaperPlist[@"assets"][@"lockAndHome"][@"default"][@"identifier"], @(numericID));
 }
 
+- (void)testPublishedDescriptorIsRevalidatedAtItsFinalPosterBoardPath {
+    NSString *input = [self makeDescriptorGroupWithNames:@[@"Post-publication check"] missingFiles:[NSSet set]];
+    NSDictionary *result = [self install:input];
+    XCTAssertEqualObjects(result[@"descriptorStoreVerified"], @YES);
+    XCTAssertEqualObjects(result[@"verificationScope"], @"filesystem-registration-only");
+    XCTAssertEqualObjects(result[@"posterBoardApplicationState"], @"unverified");
+    NSString *descriptorRoot = [self.temporaryRoot stringByAppendingPathComponent:@"PosterBoard/59/Extensions/com.apple.WallpaperKit.CollectionsPoster/descriptors"];
+    NSString *uuid = [result[@"installedDescriptorIdentifiers"] firstObject];
+    XCTAssertTrue([[NSFileManager defaultManager] fileExistsAtPath:[descriptorRoot stringByAppendingPathComponent:uuid]]);
+}
+
+- (void)testRefusesToPublishWhenExistingDescriptorHasNoNumericIdentifier {
+    NSString *input = [self makeDescriptorGroupWithNames:@[@"Collision guard"] missingFiles:[NSSet set]];
+    NSString *descriptorRoot = [self.temporaryRoot stringByAppendingPathComponent:@"PosterBoard/59/Extensions/com.apple.WallpaperKit.CollectionsPoster/descriptors"];
+    NSString *existing = [descriptorRoot stringByAppendingPathComponent:@"existing-descriptor"];
+    NSError *error = nil;
+    XCTAssertTrue([[NSFileManager defaultManager] createDirectoryAtPath:existing withIntermediateDirectories:YES attributes:nil error:&error], @"%@", error);
+    NSDictionary *result = [LBPosterBoardInstaller installExtractedDescriptorTreeAtPath:input
+        descriptorRoot:descriptorRoot error:&error];
+    XCTAssertNil(result);
+    XCTAssertEqual(error.code, 66);
+    NSArray *entries = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:descriptorRoot error:nil] ?: @[];
+    XCTAssertEqual(entries.count, 1u);
+    XCTAssertTrue([entries containsObject:@"existing-descriptor"]);
+}
+
 - (void)testRejectsMalformedIndexPropertyListBeforePublishing {
     NSString *input = [self makeDescriptorGroupWithNames:@[@"Malformed index"] missingFiles:[NSSet set]];
     NSString *indexPath = [[[[input stringByAppendingPathComponent:@"descriptors"]
@@ -475,6 +501,9 @@
     NSError *error = nil;
     XCTAssertTrue([[NSFileManager defaultManager] createDirectoryAtPath:preferencesDirectory
         withIntermediateDirectories:YES attributes:nil error:&error], @"%@", error);
+    NSString *preferencesPath = [preferencesDirectory stringByAppendingPathComponent:@"com.apple.PosterBoard.unprotectedUserDefaults.plist"];
+    NSDictionary *original = @{@"existingPreference":@"preserve-this-value", @"PBF_LOCALE_DID_CHANGE":@YES};
+    XCTAssertTrue([self writePlist:original toPath:preferencesPath]);
 
     NSDictionary *result = [LBPosterBoardInstaller requestPosterBoardRefreshForContainer:container];
     XCTAssertEqualObjects(result[@"refreshPreferencesWritten"], @YES);
@@ -483,9 +512,27 @@
     XCTAssertEqualObjects(result[@"posterBoardRefreshRequiresDeviceRestart"], @YES);
     XCTAssertNotNil(result[@"refreshWarning"]);
 
-    NSString *preferencesPath = [preferencesDirectory stringByAppendingPathComponent:@"com.apple.PosterBoard.unprotectedUserDefaults.plist"];
     NSDictionary *preferences = [NSDictionary dictionaryWithContentsOfFile:preferencesPath];
+    XCTAssertEqualObjects(preferences[@"existingPreference"], @"preserve-this-value");
     XCTAssertEqualObjects(preferences[@"PBF_LOCALE_DID_CHANGE"], @NO);
     XCTAssertEqualObjects(preferences[@"PBF_RESET_FILE_PROTECTIONS"], @YES);
+}
+
+- (void)testRefreshDoesNotReplaceMalformedExistingPreferences {
+    NSString *container = [self.temporaryRoot stringByAppendingPathComponent:@"MalformedPosterBoardContainer"];
+    NSString *preferencesDirectory = [container stringByAppendingPathComponent:@"Library/Preferences"];
+    NSError *error = nil;
+    XCTAssertTrue([[NSFileManager defaultManager] createDirectoryAtPath:preferencesDirectory
+        withIntermediateDirectories:YES attributes:nil error:&error], @"%@", error);
+    NSString *preferencesPath = [preferencesDirectory stringByAppendingPathComponent:@"com.apple.PosterBoard.unprotectedUserDefaults.plist"];
+    NSData *original = [@"not a property list" dataUsingEncoding:NSUTF8StringEncoding];
+    XCTAssertTrue([original writeToFile:preferencesPath options:NSDataWritingAtomic error:&error], @"%@", error);
+
+    NSDictionary *result = [LBPosterBoardInstaller requestPosterBoardRefreshForContainer:container];
+    XCTAssertEqualObjects(result[@"refreshPreferencesWritten"], @NO);
+    XCTAssertEqualObjects(result[@"refreshCommandAttempted"], @NO);
+    XCTAssertEqualObjects(result[@"posterBoardRefreshRequested"], @NO);
+    XCTAssertEqualObjects(result[@"posterBoardRefreshRequiresDeviceRestart"], @NO);
+    XCTAssertEqualObjects([NSData dataWithContentsOfFile:preferencesPath], original);
 }
 @end

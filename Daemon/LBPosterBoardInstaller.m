@@ -516,14 +516,42 @@ static BOOL LBCollectDescriptorRoots(NSString *extractedPath, NSMutableArray<NSS
     return YES;
 }
 
-static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutableSet<NSNumber *> *used) {
-    NSArray<NSString *> *entries = [NSFileManager.defaultManager contentsOfDirectoryAtPath:descriptorRoot error:nil];
+static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot,
+                                             NSMutableSet<NSNumber *> *used,
+                                             NSError **error) {
+    NSError *listingError = nil;
+    NSArray<NSString *> *entries = [NSFileManager.defaultManager contentsOfDirectoryAtPath:descriptorRoot
+                                                                                       error:&listingError];
+    if (!entries) {
+        if (error) *error = LBInstallError(65, [NSString stringWithFormat:
+            @"Could not enumerate the existing PosterBoard descriptor store: %@",
+            listingError.localizedDescription ?: @"unknown filesystem error"]);
+        return NO;
+    }
     for (NSString *entry in entries) {
         NSString *path = [descriptorRoot stringByAppendingPathComponent:entry];
-        if (!LBIsDirectory(path)) continue;
+        struct stat st;
+        if (lstat(path.fileSystemRepresentation, &st) != 0) {
+            if (errno == ENOENT) continue;
+            if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+            return NO;
+        }
+        if (S_ISLNK(st.st_mode) || (!S_ISDIR(st.st_mode) && !S_ISREG(st.st_mode))) {
+            if (error) *error = LBInstallError(65, [NSString stringWithFormat:
+                @"Unsafe existing entry in the PosterBoard descriptor store: %@", entry]);
+            return NO;
+        }
+        if (!S_ISDIR(st.st_mode)) continue;
         NSString *text = LBReadTrimmedString([path stringByAppendingPathComponent:@"com.apple.posterkit.provider.descriptor.identifier"]);
-        long long value = text.longLongValue;
-        if (text.length && value > 0) [used addObject:@(value)];
+        NSScanner *scanner = text.length ? [NSScanner scannerWithString:text] : nil;
+        long long value = 0;
+        if (!scanner || ![scanner scanLongLong:&value] || !scanner.isAtEnd || value <= 0) {
+            if (error) *error = LBInstallError(66, [NSString stringWithFormat:
+                @"Cannot establish the numeric wallpaper identifier for existing PosterBoard descriptor %@; refusing to risk an identifier collision.",
+                entry]);
+            return NO;
+        }
+        [used addObject:@(value)];
     }
     return YES;
 }
@@ -649,71 +677,8 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
     [NSFileManager.defaultManager removeItemAtPath:stage error:nil];
     if (!result) return nil;
 
-    // PosterBoard reads these flags when it next starts. Preserve the existing
-    // preference dictionary and verify ownership without issuing an unnecessary
-    // chown: the production daemon runs in user/foreground as mobile, and an
-    // unprivileged chown can fail even when the file already has the right owner.
-    NSString *preferencesPath = [containerPath stringByAppendingPathComponent:@"Library/Preferences/com.apple.PosterBoard.unprotectedUserDefaults.plist"];
-    NSMutableDictionary *preferences = [[NSDictionary dictionaryWithContentsOfFile:preferencesPath] mutableCopy] ?: [NSMutableDictionary dictionary];
-    preferences[@"PBF_LOCALE_DID_CHANGE"] = @NO;
-    preferences[@"PBF_RESET_FILE_PROTECTIONS"] = @YES;
-    NSData *preferencesData = [NSPropertyListSerialization dataWithPropertyList:preferences format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil];
-    int preferencesErrno = 0;
-    BOOL preferencesWritten = preferencesData && LBWriteDataAtomically(preferencesData, preferencesPath, nil);
-    if (!preferencesWritten) preferencesErrno = errno ?: EIO;
-
-    struct passwd *mobile = getpwnam("mobile");
-    struct stat preferenceStat;
-    if (preferencesWritten && lstat(preferencesPath.fileSystemRepresentation, &preferenceStat) != 0) {
-        preferencesWritten = NO;
-        preferencesErrno = errno;
-    }
-    if (preferencesWritten && (!S_ISREG(preferenceStat.st_mode) || S_ISLNK(preferenceStat.st_mode))) {
-        preferencesWritten = NO;
-        preferencesErrno = EINVAL;
-    }
-    if (preferencesWritten && mobile &&
-        (preferenceStat.st_uid != mobile->pw_uid || preferenceStat.st_gid != mobile->pw_gid)) {
-        if (geteuid() == 0) {
-            if (chown(preferencesPath.fileSystemRepresentation, mobile->pw_uid, mobile->pw_gid) != 0) {
-                preferencesWritten = NO;
-                preferencesErrno = errno;
-            }
-        } else {
-            preferencesWritten = NO;
-            preferencesErrno = EPERM;
-        }
-    } else if (preferencesWritten && !mobile && geteuid() == 0) {
-        preferencesWritten = NO;
-        preferencesErrno = ENOENT;
-    }
-    if (preferencesWritten && chmod(preferencesPath.fileSystemRepresentation, 0644) != 0) {
-        preferencesWritten = NO;
-        preferencesErrno = errno;
-    }
-    if (preferencesWritten && mobile) {
-        struct stat verifiedStat;
-        if (lstat(preferencesPath.fileSystemRepresentation, &verifiedStat) != 0 ||
-            verifiedStat.st_uid != mobile->pw_uid || verifiedStat.st_gid != mobile->pw_gid) {
-            preferencesWritten = NO;
-            preferencesErrno = errno ?: EPERM;
-        }
-    }
-
     NSMutableDictionary *final = [result mutableCopy];
-    final[@"refreshPreferencesWritten"] = @(preferencesWritten);
-    final[@"refreshPreferencesErrno"] = @(preferencesErrno);
-    final[@"refreshPreferencesOwnerUID"] = preferencesWritten ? @(preferenceStat.st_uid) : @(-1);
-    final[@"refreshPreferencesOwnerGID"] = preferencesWritten ? @(preferenceStat.st_gid) : @(-1);
-    final[@"refreshDaemonEffectiveUID"] = @(geteuid());
-    final[@"refreshCommandAttempted"] = @NO;
-    final[@"posterBoardRefreshRequested"] = @NO;
-    final[@"posterBoardRefreshRequiresDeviceRestart"] = @(preferencesWritten);
-    if (preferencesWritten) {
-        final[@"refreshWarning"] = @"Descriptor files remain published and PosterBoard refresh flags were written. LumenBoard does not terminate or signal system processes; a full device restart may be needed for PosterBoard to reload the store.";
-    } else {
-        final[@"refreshWarning"] = [NSString stringWithFormat:@"Descriptor files remain published, but PosterBoard refresh preferences could not be written or verified (errno %d: %s).", preferencesErrno, strerror(preferencesErrno)];
-    }
+    [final addEntriesFromDictionary:[self requestPosterBoardRefreshForContainer:containerPath]];
     return final;
 }
 
@@ -730,7 +695,7 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
     NSString *extensionRoot = descriptorRoot.stringByDeletingLastPathComponent;
     if (!LBEnsureDirectoryTree(extensionRoot, 0755, error) || !LBEnsureDirectoryTree(descriptorRoot, 0755, error)) return nil;
     NSMutableSet<NSNumber *> *usedIDs = [NSMutableSet set];
-    LBReadExistingNumericIdentifiers(descriptorRoot, usedIDs);
+    if (!LBReadExistingNumericIdentifiers(descriptorRoot, usedIDs, error)) return nil;
 
     NSString *stagingRoot = [extensionRoot stringByAppendingPathComponent:[NSString stringWithFormat:@".lumenboard-staging-%@", NSUUID.UUID.UUIDString.lowercaseString]];
     if (!LBEnsureDirectory(stagingRoot, 0700, error)) return nil;
@@ -795,6 +760,18 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
             [committedPaths addObject:destination];
         }
     }
+    if (success) {
+        // Verify the bytes at their final PosterBoard paths after publication.
+        // A successful rename alone is not treated as a complete registration.
+        for (NSString *path in committedPaths) {
+            NSError *verificationError = nil;
+            if (!LBValidateDescriptorTree(path, &verificationError)) {
+                localError = verificationError ?: LBInstallError(67, @"A published descriptor failed its post-publication verification.");
+                success = NO;
+                break;
+            }
+        }
+    }
     if (!success) {
         // Roll back only directories this invocation actually published. Never
         // delete a colliding path that appeared concurrently.
@@ -806,48 +783,137 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot, NSMutable
         return nil;
     }
     [NSFileManager.defaultManager removeItemAtPath:stagingRoot error:nil];
-    return @{@"installedDescriptorIdentifiers": publishedIdentifiers,
-             @"installedDescriptorCount": @(publishedIdentifiers.count),
-             @"descriptorStructureVersion": @(LBExpectedStructureVersion),
-             @"extension": LBCollectionsExtension};
+    return @{
+        @"installedDescriptorIdentifiers": publishedIdentifiers,
+        @"installedDescriptorCount": @(publishedIdentifiers.count),
+        @"descriptorStructureVersion": @(LBExpectedStructureVersion),
+        @"extension": LBCollectionsExtension,
+        @"descriptorStoreVerified": @YES,
+        @"verificationScope": @"filesystem-registration-only",
+        @"posterBoardApplicationState": @"unverified"
+    };
 }
 
 
 + (NSDictionary *)requestPosterBoardRefreshForContainer:(NSString *)containerPath {
-    NSString *preferencesPath = [containerPath stringByAppendingPathComponent:@"Library/Preferences/com.apple.PosterBoard.unprotectedUserDefaults.plist"];
-    NSMutableDictionary *preferences = [[NSDictionary dictionaryWithContentsOfFile:preferencesPath] mutableCopy] ?: [NSMutableDictionary dictionary];
-    preferences[@"PBF_LOCALE_DID_CHANGE"] = @NO;
-    preferences[@"PBF_RESET_FILE_PROTECTIONS"] = @YES;
-    NSData *data = [NSPropertyListSerialization dataWithPropertyList:preferences format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil];
-    BOOL written = data && LBWriteDataAtomically(data, preferencesPath, nil);
-    int savedErrno = written ? 0 : (errno ?: EIO);
-    struct passwd *mobile = getpwnam("mobile");
-    struct stat st;
-    if (written && (lstat(preferencesPath.fileSystemRepresentation, &st) != 0 || !S_ISREG(st.st_mode) || S_ISLNK(st.st_mode))) {
-        written = NO; savedErrno = errno ?: EINVAL;
-    }
-    if (written && mobile && (st.st_uid != mobile->pw_uid || st.st_gid != mobile->pw_gid)) {
-        if (geteuid() == 0 && chown(preferencesPath.fileSystemRepresentation, mobile->pw_uid, mobile->pw_gid) == 0) {
-            lstat(preferencesPath.fileSystemRepresentation, &st);
-        } else {
-            written = NO; savedErrno = errno ?: EPERM;
+    NSString *preferencesDirectory = [containerPath stringByAppendingPathComponent:@"Library/Preferences"];
+    NSString *preferencesPath = [preferencesDirectory stringByAppendingPathComponent:@"com.apple.PosterBoard.unprotectedUserDefaults.plist"];
+    int savedErrno = 0;
+    NSString *failureReason = nil;
+    BOOL written = NO;
+
+    do {
+        if (!LBIsDirectory(containerPath) || !LBIsDirectory(preferencesDirectory)) {
+            savedErrno = ENOENT;
+            failureReason = @"The PosterBoard container or Preferences directory is unavailable.";
+            break;
         }
-    }
-    if (written && chmod(preferencesPath.fileSystemRepresentation, 0644) != 0) {
-        written = NO; savedErrno = errno;
-    }
+        struct passwd *mobile = getpwnam("mobile");
+        if (!mobile && geteuid() == 0) {
+            savedErrno = ENOENT;
+            failureReason = @"The mobile account could not be resolved.";
+            break;
+        }
+        if (mobile && geteuid() != 0 && geteuid() != mobile->pw_uid) {
+            savedErrno = EPERM;
+            failureReason = @"The refresh preference must be written by mobile or by a process able to set mobile ownership.";
+            break;
+        }
+
+        NSMutableDictionary *preferences = [NSMutableDictionary dictionary];
+        struct stat originalStat;
+        if (lstat(preferencesPath.fileSystemRepresentation, &originalStat) == 0) {
+            if (!S_ISREG(originalStat.st_mode) || S_ISLNK(originalStat.st_mode)) {
+                savedErrno = EINVAL;
+                failureReason = @"The existing PosterBoard refresh preference is not a regular file.";
+                break;
+            }
+            NSError *readError = nil;
+            NSData *existingData = [NSData dataWithContentsOfFile:preferencesPath options:NSDataReadingMappedIfSafe error:&readError];
+            if (!existingData) {
+                savedErrno = EIO;
+                failureReason = [NSString stringWithFormat:@"Could not read the existing PosterBoard preferences: %@",
+                    readError.localizedDescription ?: @"unknown read error"];
+                break;
+            }
+            NSPropertyListFormat format = NSPropertyListBinaryFormat_v1_0;
+            NSError *parseError = nil;
+            id existingObject = [NSPropertyListSerialization propertyListWithData:existingData
+                options:NSPropertyListMutableContainersAndLeaves format:&format error:&parseError];
+            if (![existingObject isKindOfClass:NSDictionary.class]) {
+                savedErrno = EINVAL;
+                failureReason = [NSString stringWithFormat:@"The existing PosterBoard preferences are not a valid property-list dictionary: %@",
+                    parseError.localizedDescription ?: @"invalid property list"];
+                break;
+            }
+            preferences = [existingObject mutableCopy];
+        } else if (errno != ENOENT) {
+            savedErrno = errno;
+            failureReason = @"Could not inspect the existing PosterBoard refresh preference.";
+            break;
+        }
+
+        preferences[@"PBF_LOCALE_DID_CHANGE"] = @NO;
+        preferences[@"PBF_RESET_FILE_PROTECTIONS"] = @YES;
+        NSError *serializationError = nil;
+        NSData *data = [NSPropertyListSerialization dataWithPropertyList:preferences
+            format:NSPropertyListBinaryFormat_v1_0 options:0 error:&serializationError];
+        if (!data) {
+            savedErrno = EINVAL;
+            failureReason = [NSString stringWithFormat:@"Could not serialize PosterBoard preferences: %@",
+                serializationError.localizedDescription ?: @"unknown serialization error"];
+            break;
+        }
+        NSError *writeError = nil;
+        if (!LBWriteDataAtomically(data, preferencesPath, &writeError)) {
+            savedErrno = [writeError.domain isEqualToString:NSPOSIXErrorDomain] ? (int)writeError.code : EIO;
+            failureReason = [NSString stringWithFormat:@"Could not write PosterBoard refresh preferences: %@",
+                writeError.localizedDescription ?: @"unknown write error"];
+            break;
+        }
+
+        struct stat writtenStat;
+        if (lstat(preferencesPath.fileSystemRepresentation, &writtenStat) != 0 ||
+            !S_ISREG(writtenStat.st_mode) || S_ISLNK(writtenStat.st_mode)) {
+            savedErrno = errno ?: EINVAL;
+            failureReason = @"The written PosterBoard preference is not a regular file.";
+            break;
+        }
+        if (mobile && (writtenStat.st_uid != mobile->pw_uid || writtenStat.st_gid != mobile->pw_gid)) {
+            if (geteuid() != 0 || chown(preferencesPath.fileSystemRepresentation, mobile->pw_uid, mobile->pw_gid) != 0) {
+                savedErrno = errno ?: EPERM;
+                failureReason = @"The PosterBoard preference could not be assigned to mobile:mobile.";
+                break;
+            }
+        }
+        if (chmod(preferencesPath.fileSystemRepresentation, 0644) != 0) {
+            savedErrno = errno;
+            failureReason = @"Could not set readable permissions on the PosterBoard preference.";
+            break;
+        }
+        struct stat verifiedStat;
+        if (lstat(preferencesPath.fileSystemRepresentation, &verifiedStat) != 0 ||
+            !S_ISREG(verifiedStat.st_mode) || S_ISLNK(verifiedStat.st_mode) ||
+            (mobile && (verifiedStat.st_uid != mobile->pw_uid || verifiedStat.st_gid != mobile->pw_gid))) {
+            savedErrno = errno ?: EPERM;
+            failureReason = @"PosterBoard preference ownership or file type could not be verified after writing.";
+            break;
+        }
+        written = YES;
+    } while (0);
 
     NSMutableDictionary *result = [@{
         @"refreshPreferencesWritten": @(written),
-        @"refreshPreferencesErrno": @(savedErrno),
+        @"refreshPreferencesErrno": @(written ? 0 : (savedErrno ?: EIO)),
         @"refreshCommandAttempted": @NO,
         @"posterBoardRefreshRequested": @NO,
         @"posterBoardRefreshRequiresDeviceRestart": @(written)
     } mutableCopy];
     if (written) {
-        result[@"refreshWarning"] = @"PosterBoard refresh flags were written. LumenBoard does not terminate or signal system processes; a full device restart may be needed for PosterBoard to reload the store.";
+        result[@"refreshWarning"] = @"PosterBoard refresh flags were written and their file type/ownership were verified. LumenBoard does not terminate or signal system processes; a full device restart may be needed for PosterBoard to reload the store.";
     } else {
-        result[@"refreshWarning"] = [NSString stringWithFormat:@"PosterBoard refresh preferences were not written or verified (errno %d: %s).", savedErrno, strerror(savedErrno)];
+        result[@"refreshWarning"] = [NSString stringWithFormat:@"PosterBoard refresh preferences were not written or verified (errno %d: %@).",
+            savedErrno ?: EIO, failureReason ?: @"unknown error"];
     }
     return result;
 }
