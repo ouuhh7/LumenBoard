@@ -60,5 +60,5 @@ No cryptographic or Apple-private schema guarantee is claimed. No install, Poste
 ## Follow-up implementation update
 
 - Automatic `killall -9 PosterBoard` process termination has been removed. LumenBoard only writes and verifies the two PosterBoard refresh preference flags; it does not signal or terminate system processes. The report now states that a full device restart may be needed and does not claim that a refresh command was requested.
-- Native descriptor validation now compares the `.wallpaper` `logicalScreenClass` family (`~iphone` / `~ipad`) with the device family reported by `hw.machine`. A cross-family descriptor is rejected before publication and also reported as structurally incompatible during read-only verification.
+- Native descriptor validation checks that `logicalScreenClass` is a syntactically valid iPhone/iPad class, but does not reject a cross-family suffix. A user's report that this `~ipad` BlackHole descriptor works on iPhone 13 demonstrates that the suffix alone is not a reliable runtime compatibility test.
 - Exact screen geometry, artwork scaling, Apple renderer behavior, gallery visibility and actual wallpaper application remain unverified. The family preflight is a mismatch guard, not a rendering certification.
