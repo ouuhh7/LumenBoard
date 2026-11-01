@@ -6,7 +6,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 /// Installs descriptor-format .tendies contents into the iOS 16 Collections
 /// descriptor store for a known PosterBoard data-container path.
-/// The caller must run as root. Container-format archives are rejected.
+/// The caller must have read/write access to the PosterBoard container (the
+/// production daemon runs as mobile in Dopamine's user/foreground domain).
+/// Container-format archives are rejected.
 + (nullable NSDictionary *)installArchiveAtPath:(NSString *)archivePath
                           posterBoardContainer:(NSString *)containerPath
                                           error:(NSError * _Nullable * _Nullable)error;
