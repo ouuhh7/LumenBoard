@@ -7,6 +7,7 @@
 + (BOOL)validateLogicalScreenClass:(NSString *)logicalScreenClass
                 machineIdentifier:(NSString *)machineIdentifier
                              error:(NSError **)error;
++ (BOOL)validatePublishedDescriptorIdentifiersAtPath:(NSString *)path error:(NSError **)error;
 @end
 
 @interface LBPosterBoardInstallerTests : XCTestCase
@@ -460,6 +461,45 @@
     XCTAssertEqualObjects(missing[@"descriptorStoreState"], @"missing");
     XCTAssertEqualObjects(missing[@"presentDescriptorCount"], @0);
     XCTAssertEqualObjects(missing[@"missingDescriptorCount"], @1);
+}
+
+- (void)testPublishedDescriptorIdentifierConsistencyIsEnforced {
+    NSString *input = [self makeDescriptorGroupWithNames:@[@"Identifier consistency"] missingFiles:[NSSet set]];
+    NSString *descriptorRoot = [self.temporaryRoot stringByAppendingPathComponent:@"PosterBoard/59/Extensions/com.apple.WallpaperKit.CollectionsPoster/descriptors"];
+    NSError *error = nil;
+    NSDictionary *result = [LBPosterBoardInstaller installExtractedDescriptorTreeAtPath:input
+        descriptorRoot:descriptorRoot error:&error];
+    XCTAssertNotNil(result, @"%@", error);
+    XCTAssertNil(error);
+    NSString *uuid = [result[@"installedDescriptorIdentifiers"] firstObject];
+    NSString *published = [descriptorRoot stringByAppendingPathComponent:uuid];
+    XCTAssertTrue([LBPosterBoardInstaller validatePublishedDescriptorIdentifiersAtPath:published error:&error], @"%@", error);
+    XCTAssertNil(error);
+
+    NSString *wallpaperPath = nil;
+    NSDirectoryEnumerator *enumerator = [[NSFileManager defaultManager] enumeratorAtPath:published];
+    NSString *relative = nil;
+    while ((relative = enumerator.nextObject)) {
+        if ([relative.lastPathComponent caseInsensitiveCompare:@"Wallpaper.plist"] == NSOrderedSame) {
+            wallpaperPath = [published stringByAppendingPathComponent:relative];
+            break;
+        }
+    }
+    XCTAssertNotNil(wallpaperPath);
+    NSMutableDictionary *wallpaper = [[NSDictionary dictionaryWithContentsOfFile:wallpaperPath] mutableCopy];
+    NSMutableDictionary *assets = [wallpaper[@"assets"] mutableCopy];
+    NSMutableDictionary *lockAndHome = [assets[@"lockAndHome"] mutableCopy];
+    NSMutableDictionary *defaults = [lockAndHome[@"default"] mutableCopy];
+    defaults[@"identifier"] = @54321;
+    lockAndHome[@"default"] = defaults;
+    assets[@"lockAndHome"] = lockAndHome;
+    wallpaper[@"assets"] = assets;
+    XCTAssertTrue([self writePlist:wallpaper toPath:wallpaperPath]);
+
+    error = nil;
+    XCTAssertFalse([LBPosterBoardInstaller validatePublishedDescriptorIdentifiersAtPath:published error:&error]);
+    XCTAssertEqual(error.code, 68);
+    XCTAssertTrue([error.localizedDescription containsString:@"identifier mismatch"]);
 }
 
 - (void)testDeviceFamilyPreflightAllowsIPadWallpaperOnIPhone13 {

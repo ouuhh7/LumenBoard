@@ -408,6 +408,77 @@ static BOOL LBValidateDescriptorTree(NSString *root, NSError **error) {
     return YES;
 }
 
+static BOOL LBValidatePublishedDescriptorIdentifierConsistency(NSString *root, NSError **error) {
+    NSString *rootIDText = LBReadTrimmedString([root stringByAppendingPathComponent:@"com.apple.posterkit.provider.descriptor.identifier"]);
+    NSScanner *rootScanner = rootIDText.length ? [NSScanner scannerWithString:rootIDText] : nil;
+    long long rootID = 0;
+    if (!rootScanner || ![rootScanner scanLongLong:&rootID] || !rootScanner.isAtEnd || rootID <= 0) {
+        if (error) *error = LBInstallError(68, @"Published descriptor has no valid numeric root identifier.");
+        return NO;
+    }
+
+    NSUInteger wallpaperCount = 0;
+    NSUInteger userInfoCount = 0;
+    NSDirectoryEnumerator *enumerator = [NSFileManager.defaultManager enumeratorAtPath:root];
+    NSString *relative = nil;
+    while ((relative = enumerator.nextObject)) {
+        NSString *name = relative.lastPathComponent;
+        NSString *full = [root stringByAppendingPathComponent:relative];
+        if ([name caseInsensitiveCompare:@"Wallpaper.plist"] == NSOrderedSame) {
+            if (!LBIsRegularFile(full)) {
+                if (error) *error = LBInstallError(68, [NSString stringWithFormat:@"Published Wallpaper.plist is not a regular file: %@", relative]);
+                return NO;
+            }
+            NSData *data = [NSData dataWithContentsOfFile:full];
+            id object = data ? [NSPropertyListSerialization propertyListWithData:data options:NSPropertyListImmutable format:nil error:nil] : nil;
+            NSDictionary *wallpaper = [object isKindOfClass:NSDictionary.class] ? object : nil;
+            NSDictionary *assets = [wallpaper[@"assets"] isKindOfClass:NSDictionary.class] ? wallpaper[@"assets"] : nil;
+            NSDictionary *lockAndHome = [assets[@"lockAndHome"] isKindOfClass:NSDictionary.class] ? assets[@"lockAndHome"] : nil;
+            NSDictionary *defaults = [lockAndHome[@"default"] isKindOfClass:NSDictionary.class] ? lockAndHome[@"default"] : nil;
+            id wallpaperID = wallpaper[@"identifier"];
+            id defaultID = defaults[@"identifier"];
+            if (!LBIsPositiveNumericIdentifier(wallpaperID) ||
+                [wallpaperID longLongValue] != rootID ||
+                !LBIsPositiveNumericIdentifier(defaultID) ||
+                [defaultID longLongValue] != rootID) {
+                if (error) *error = LBInstallError(68, [NSString stringWithFormat:
+                    @"Published descriptor identifier mismatch in %@: root=%lld, wallpaper=%@, default-layer=%@.",
+                    relative, rootID, wallpaperID ?: @"(missing)", defaultID ?: @"(missing)"]);
+                return NO;
+            }
+            wallpaperCount++;
+        } else if ([name isEqualToString:@"com.apple.posterkit.provider.contents.userInfo"]) {
+            if (!LBIsRegularFile(full)) continue;
+            NSData *data = [NSData dataWithContentsOfFile:full];
+            id object = data ? [NSPropertyListSerialization propertyListWithData:data options:NSPropertyListImmutable format:nil error:nil] : nil;
+            NSDictionary *userInfo = [object isKindOfClass:NSDictionary.class] ? object : nil;
+            id representingID = userInfo[@"wallpaperRepresentingIdentifier"];
+            long long parsedRepresentingID = 0;
+            BOOL identifierMatches = NO;
+            if ([representingID isKindOfClass:NSNumber.class]) {
+                identifierMatches = LBIsPositiveNumericIdentifier(representingID) &&
+                    [representingID longLongValue] == rootID;
+            } else if ([representingID isKindOfClass:NSString.class]) {
+                NSScanner *scanner = [NSScanner scannerWithString:representingID];
+                identifierMatches = [scanner scanLongLong:&parsedRepresentingID] &&
+                    scanner.isAtEnd && parsedRepresentingID > 0 && parsedRepresentingID == rootID;
+            }
+            if (!identifierMatches) {
+                if (error) *error = LBInstallError(68, [NSString stringWithFormat:
+                    @"Published provider user-info identifier does not match descriptor root ID %lld at %@.",
+                    rootID, relative]);
+                return NO;
+            }
+            userInfoCount++;
+        }
+    }
+    if (wallpaperCount == 0 || userInfoCount == 0) {
+        if (error) *error = LBInstallError(68, @"Published descriptor is missing a Wallpaper.plist or provider user-info identifier.");
+        return NO;
+    }
+    return YES;
+}
+
 static BOOL LBRewriteDescriptorIdentifiers(NSString *root, NSInteger numericID, NSError **error) {
     NSString *descriptorID = [NSString stringWithFormat:@"%ld", (long)numericID];
     NSData *idData = [descriptorID dataUsingEncoding:NSUTF8StringEncoding];
@@ -564,6 +635,11 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot,
     return LBValidateDeviceFamilyForLogicalScreenClass(logicalScreenClass, machineIdentifier, error);
 }
 
+// Private validation seam used by the macOS XCTest suite.
++ (BOOL)validatePublishedDescriptorIdentifiersAtPath:(NSString *)path error:(NSError **)error {
+    return LBValidatePublishedDescriptorIdentifierConsistency(path, error);
+}
+
 + (NSString *)findPosterBoardContainer:(NSError **)error {
     NSString *base = @"/var/mobile/Containers/Data/Application";
     if (!LBIsDirectory(base)) {
@@ -619,10 +695,11 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot,
             continue;
         }
         NSError *validationError = nil;
-        if (!LBValidateDescriptorTree(descriptorPath, &validationError)) {
+        if (!LBValidateDescriptorTree(descriptorPath, &validationError) ||
+            !LBValidatePublishedDescriptorIdentifierConsistency(descriptorPath, &validationError)) {
             [invalid addObject:@{
                 @"identifier": uuid,
-                @"error": validationError.localizedDescription ?: @"Descriptor structure validation failed."
+                @"error": validationError.localizedDescription ?: @"Descriptor structure/identifier validation failed."
             }];
             continue;
         }
@@ -764,8 +841,9 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot,
         // A successful rename alone is not treated as a complete registration.
         for (NSString *path in committedPaths) {
             NSError *verificationError = nil;
-            if (!LBValidateDescriptorTree(path, &verificationError)) {
-                localError = verificationError ?: LBInstallError(67, @"A published descriptor failed its post-publication verification.");
+            if (!LBValidateDescriptorTree(path, &verificationError) ||
+                !LBValidatePublishedDescriptorIdentifierConsistency(path, &verificationError)) {
+                localError = verificationError ?: LBInstallError(67, @"A published descriptor failed its post-publication structure or identifier verification.");
                 success = NO;
                 break;
             }
