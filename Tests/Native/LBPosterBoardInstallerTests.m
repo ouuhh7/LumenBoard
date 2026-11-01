@@ -3,6 +3,12 @@
 #import <sys/stat.h>
 #import <unistd.h>
 
+@interface LBPosterBoardInstaller (DeviceFamilyTesting)
++ (BOOL)validateLogicalScreenClass:(NSString *)logicalScreenClass
+                machineIdentifier:(NSString *)machineIdentifier
+                             error:(NSError **)error;
+@end
+
 @interface LBPosterBoardInstallerTests : XCTestCase
 @property(nonatomic, copy) NSString *temporaryRoot;
 
@@ -428,6 +434,39 @@
     XCTAssertEqualObjects(missing[@"descriptorStoreState"], @"missing");
     XCTAssertEqualObjects(missing[@"presentDescriptorCount"], @0);
     XCTAssertEqualObjects(missing[@"missingDescriptorCount"], @1);
+}
+
+- (void)testDeviceFamilyPreflightRejectsIPadWallpaperOnIPhone {
+    NSError *error = nil;
+    BOOL compatible = [LBPosterBoardInstaller validateLogicalScreenClass:@"810w-1080h@2x~ipad"
+        machineIdentifier:@"iPhone10,6" error:&error];
+    XCTAssertFalse(compatible);
+    XCTAssertEqual(error.code, 37);
+    XCTAssertTrue([error.localizedDescription containsString:@"targets an ipad screen class"]);
+}
+
+- (void)testDeviceFamilyPreflightAcceptsIPhoneWallpaperOnIPhoneX {
+    NSError *error = nil;
+    BOOL compatible = [LBPosterBoardInstaller validateLogicalScreenClass:@"375w-812h@3x~iphone"
+        machineIdentifier:@"iPhone10,6" error:&error];
+    XCTAssertTrue(compatible, @"%@", error);
+    XCTAssertNil(error);
+}
+
+- (void)testDeviceFamilyPreflightRejectsIPhoneWallpaperOnIPad {
+    NSError *error = nil;
+    BOOL compatible = [LBPosterBoardInstaller validateLogicalScreenClass:@"375w-812h@3x~iphone"
+        machineIdentifier:@"iPad7,5" error:&error];
+    XCTAssertFalse(compatible);
+    XCTAssertEqual(error.code, 37);
+}
+
+- (void)testDeviceFamilyPreflightDoesNotGuessForUnknownHost {
+    NSError *error = nil;
+    BOOL compatible = [LBPosterBoardInstaller validateLogicalScreenClass:@"810w-1080h@2x~ipad"
+        machineIdentifier:@"arm64" error:&error];
+    XCTAssertTrue(compatible);
+    XCTAssertNil(error);
 }
 
 - (void)testRefreshFlagsAreWrittenWithoutTerminatingSystemProcesses {
