@@ -26,7 +26,8 @@ NS_ASSUME_NONNULL_BEGIN
                                              posterBoardContainer:(NSString *)containerPath
                                                              error:(NSError * _Nullable * _Nullable)error;
 
-/// Writes PosterBoard refresh flags and requests a PosterBoard process restart.
+/// Writes PosterBoard refresh flags without terminating or signalling system processes.
+/// A device restart may be needed before PosterBoard reloads the published descriptors.
 + (NSDictionary *)requestPosterBoardRefreshForContainer:(NSString *)containerPath;
 
 /// Resolves the PosterBoard app data container using its MCM metadata identifier.
