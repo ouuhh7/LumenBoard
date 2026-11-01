@@ -83,6 +83,34 @@ class DescriptorConsistencyTests(unittest.TestCase):
         self.assertEqual(report["descriptors"][0]["wallpaper_identifier"], 12345)
         self.assertEqual(report["scope"], "structural-consistency-only-not-a-PosterBoard-compatibility-test")
 
+    def test_reports_logical_screen_class_from_wallpaper_metadata(self):
+        report = validator.validate_descriptors_root(self.root)
+        self.assertEqual(report["descriptors"][0]["logical_screen_class"], "375w-812h@3x~iphone")
+
+    def test_expected_screen_class_match_has_no_warning(self):
+        report = validator.validate_descriptors_root(self.root, "375w-812h@3x~iphone")
+        self.assertEqual(report["status"], "passes-structural-checks")
+        self.assertEqual(report["expected_screen_class"], "375w-812h@3x~iphone")
+
+    def test_expected_screen_class_mismatch_is_explicit_warning(self):
+        report = validator.validate_descriptors_root(self.root, "810w-1080h@2x~ipad")
+        self.assertEqual(report["status"], "passes-with-warnings")
+        self.assertTrue(any("does not match requested target" in issue for issue in report["warnings"]))
+        self.assertEqual(report["descriptors"][0]["logical_screen_class"], "375w-812h@3x~iphone")
+
+    def test_rejects_malformed_logical_screen_class(self):
+        path = self.wallpaper / "Wallpaper.plist"
+        metadata = plistlib.loads(path.read_bytes())
+        metadata["logicalScreenClass"] = "../ipad"
+        path.write_bytes(plistlib.dumps(metadata))
+        report = validator.validate_descriptors_root(self.root)
+        self.assertEqual(report["status"], "invalid")
+        self.assertTrue(any("logicalScreenClass is missing or malformed" in issue for issue in report["errors"]))
+
+    def test_rejects_malformed_expected_screen_class_argument(self):
+        with self.assertRaisesRegex(validator.ConsistencyError, "expected screen class"):
+            validator.validate_descriptors_root(self.root, "../ipad")
+
     def test_reports_mismatch_between_wallpaper_and_provider_userinfo(self):
         path = self.contents / "com.apple.posterkit.provider.contents.userInfo"
         data = plistlib.loads(path.read_bytes())
