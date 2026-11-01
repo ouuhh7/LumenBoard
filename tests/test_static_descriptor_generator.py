@@ -48,12 +48,12 @@ class StaticDescriptorGeneratorTests(unittest.TestCase):
 
     def test_objc_media_builder_matches_ios16_posterforge_index_contract(self):
         source = (Path(__file__).resolve().parents[1] / "Daemon" / "LBPosterMediaBuilder.m").read_text(encoding="utf-8")
-        self.assertIn("return LBMediaWritePlist(index, [directory stringByAppendingPathComponent:@\\"index.xml\\"], error);", source)
+        self.assertIn('return LBMediaWritePlist(index, [directory stringByAppendingPathComponent:@"index.xml"], error);', source)
         self.assertNotIn("LBMediaWriteXMLPlist", source)
         self.assertIn('@"geometryFlipped":@NO', source)
         self.assertIn('@"rootDocument":@"main.caml"', source)
-        self.assertIn('bounds=\\"0 0 1 1\\"', source)
-        self.assertIn('position=\\"0.5 0.5\\"', source)
+        self.assertIn('bounds="0 0 1 1"', source)
+        self.assertIn('position="0.5 0.5"', source)
         self.assertIn("writeEmptyLayerAt:floating error:error", source)
 
     def test_wallpaper_ids_are_unique_across_generated_descriptors(self):
