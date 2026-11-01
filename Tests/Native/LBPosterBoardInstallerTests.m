@@ -121,7 +121,16 @@ static pid_t LBTestWaitPIDFailureAfterReap(pid_t pid, int *status, int options) 
                 NSString *layer = [wallpaper stringByAppendingPathComponent:layerName];
                 XCTAssertTrue([[NSFileManager defaultManager] createDirectoryAtPath:layer withIntermediateDirectories:NO attributes:nil error:&error], @"%@", error);
                 [@"<caml/>" writeToFile:[layer stringByAppendingPathComponent:@"main.caml"] atomically:YES encoding:NSUTF8StringEncoding error:&error];
-                [@"index" writeToFile:[layer stringByAppendingPathComponent:@"index.xml"] atomically:YES encoding:NSUTF8StringEncoding error:&error];
+                NSDictionary *layerIndex = @{
+                    @"assetManifest":@"assetManifest.caml",
+                    @"documentHeight":@1,
+                    @"documentResizesToView":@YES,
+                    @"documentWidth":@1,
+                    @"geometryFlipped":@NO,
+                    @"rootDocument":@"main.caml",
+                    @"scalesToFitInPlayer":@YES
+                };
+                XCTAssertTrue([self writePlist:layerIndex toPath:[layer stringByAppendingPathComponent:@"index.xml"]]);
             }
         }
         [@"fixture asset" writeToFile:[wallpaper stringByAppendingPathComponent:@"sample.asset"]
@@ -168,6 +177,20 @@ static pid_t LBTestWaitPIDFailureAfterReap(pid_t pid, int *status, int options) 
     NSDictionary *wallpaperPlist = [NSDictionary dictionaryWithContentsOfFile:[wallpaperPath stringByAppendingPathComponent:@"Wallpaper.plist"]];
     XCTAssertEqualObjects(wallpaperPlist[@"identifier"], @(numericID));
     XCTAssertEqualObjects(wallpaperPlist[@"assets"][@"lockAndHome"][@"default"][@"identifier"], @(numericID));
+}
+
+- (void)testRejectsMalformedIndexPropertyListBeforePublishing {
+    NSString *input = [self makeDescriptorGroupWithNames:@[@"Malformed index"] missingFiles:[NSSet set]];
+    NSString *indexPath = [[[[input stringByAppendingPathComponent:@"descriptors"]
+        stringByAppendingPathComponent:@"fixture-1"] stringByAppendingPathComponent:@"versions/1/contents"]
+        stringByAppendingPathComponent:@"Fixture1.Custom.wallpaper/PF_Background.ca/index.xml"];
+    XCTAssertTrue([@"not a property list" writeToFile:indexPath atomically:YES encoding:NSUTF8StringEncoding error:nil]);
+    NSString *descriptorRoot = [self.temporaryRoot stringByAppendingPathComponent:@"PosterBoard/59/Extensions/com.apple.WallpaperKit.CollectionsPoster/descriptors"];
+    NSError *error = nil;
+    NSDictionary *result = [LBPosterBoardInstaller installExtractedDescriptorTreeAtPath:input descriptorRoot:descriptorRoot error:&error];
+    XCTAssertNil(result);
+    XCTAssertEqual(error.code, 32);
+    XCTAssertEqualObjects([[NSFileManager defaultManager] contentsOfDirectoryAtPath:descriptorRoot error:nil], (@[]));
 }
 
 - (void)testInstallsMultipleDescriptorsWithUniqueUUIDsAndNumericIDs {
