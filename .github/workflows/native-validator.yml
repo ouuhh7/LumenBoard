@@ -132,7 +132,7 @@ jobs:
           # Validate the ar/deb container before inspecting its payload.
           ar t "$DEB" | tee package-archive-members.txt
           grep -Fxq "debian-binary" package-archive-members.txt
-          grep -Fxq "control.tar.gz" package-archive-members.txt
+          grep -Eq '^control\.tar\.(gz|xz|zst)$' package-archive-members.txt
           grep -Fxq "data.tar.xz" package-archive-members.txt
           test "$(ar p "$DEB" debian-binary)" = "2.0"
 
