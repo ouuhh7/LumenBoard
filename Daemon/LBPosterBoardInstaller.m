@@ -750,14 +750,14 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot,
             return NO;
         }
 
-        NSNumber *metadataID = nil;
-        if (!LBReadExistingDescriptorMetadataIdentifier(path, &metadataID, error)) return NO;
-        if (rootID && ![rootID isEqualToNumber:metadataID]) {
-            if (error) *error = LBInstallError(66, [NSString stringWithFormat:
-                @"Existing PosterBoard descriptor root identifier conflicts with its internal metadata: %@", entry]);
-            return NO;
+        // Preserve the established root-identifier path for existing descriptors.
+        // Internal metadata is consulted only when the root identifier is absent or empty.
+        NSNumber *resolvedID = rootID;
+        if (!resolvedID) {
+            NSNumber *metadataID = nil;
+            if (!LBReadExistingDescriptorMetadataIdentifier(path, &metadataID, error)) return NO;
+            resolvedID = metadataID;
         }
-        NSNumber *resolvedID = rootID ?: metadataID;
         if ([used containsObject:resolvedID]) {
             if (error) *error = LBInstallError(66, [NSString stringWithFormat:
                 @"Duplicate numeric wallpaper identifier %@ already exists in the PosterBoard descriptor store; refusing to allocate around an inconsistent store.",
