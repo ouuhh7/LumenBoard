@@ -165,6 +165,65 @@
     XCTAssertTrue([[NSFileManager defaultManager] fileExistsAtPath:[descriptorRoot stringByAppendingPathComponent:uuid]]);
 }
 
+- (void)testRecoversMissingRootIdentifierFromConsistentDescriptorMetadata {
+    NSString *input = [self makeDescriptorGroupWithNames:@[@"Metadata recovery"] missingFiles:[NSSet set]];
+    NSString *descriptorRoot = [self.temporaryRoot stringByAppendingPathComponent:@"PosterBoard/59/Extensions/com.apple.WallpaperKit.CollectionsPoster/descriptors"];
+    NSString *existing = [descriptorRoot stringByAppendingPathComponent:@"existing-descriptor"];
+    NSError *error = nil;
+    XCTAssertTrue([[NSFileManager defaultManager] createDirectoryAtPath:descriptorRoot withIntermediateDirectories:YES attributes:nil error:&error], @"%@", error);
+    NSString *fixture = [[input stringByAppendingPathComponent:@"descriptors"] stringByAppendingPathComponent:@"fixture-1"];
+    XCTAssertTrue([[NSFileManager defaultManager] copyItemAtPath:fixture toPath:existing error:&error], @"%@", error);
+    XCTAssertTrue([[NSFileManager defaultManager] removeItemAtPath:[existing stringByAppendingPathComponent:@"com.apple.posterkit.provider.descriptor.identifier"] error:&error], @"%@", error);
+
+    NSDictionary *result = [LBPosterBoardInstaller installExtractedDescriptorTreeAtPath:input
+        descriptorRoot:descriptorRoot error:&error];
+    XCTAssertNotNil(result, @"%@", error);
+    XCTAssertNil(error);
+    XCTAssertEqual([result[@"installedDescriptorIdentifiers"] count], 1u);
+    XCTAssertTrue([[NSFileManager defaultManager] fileExistsAtPath:existing]);
+    XCTAssertEqual([NSFileManager.defaultManager contentsOfDirectoryAtPath:descriptorRoot error:nil].count, 2u);
+}
+
+- (void)testRefusesMetadataRecoveryWhenWallpaperIdentifiersDisagree {
+    NSString *input = [self makeDescriptorGroupWithNames:@[@"Metadata mismatch"] missingFiles:[NSSet set]];
+    NSString *descriptorRoot = [self.temporaryRoot stringByAppendingPathComponent:@"PosterBoard/59/Extensions/com.apple.WallpaperKit.CollectionsPoster/descriptors"];
+    NSString *existing = [descriptorRoot stringByAppendingPathComponent:@"existing-descriptor"];
+    NSError *error = nil;
+    XCTAssertTrue([[NSFileManager defaultManager] createDirectoryAtPath:descriptorRoot withIntermediateDirectories:YES attributes:nil error:&error], @"%@", error);
+    NSString *fixture = [[input stringByAppendingPathComponent:@"descriptors"] stringByAppendingPathComponent:@"fixture-1"];
+    XCTAssertTrue([[NSFileManager defaultManager] copyItemAtPath:fixture toPath:existing error:&error], @"%@", error);
+    XCTAssertTrue([[NSFileManager defaultManager] removeItemAtPath:[existing stringByAppendingPathComponent:@"com.apple.posterkit.provider.descriptor.identifier"] error:&error], @"%@", error);
+    NSString *wallpaperPath = [[existing stringByAppendingPathComponent:@"versions/1/contents/Fixture1.Custom.wallpaper"] stringByAppendingPathComponent:@"Wallpaper.plist"];
+    NSMutableDictionary *wallpaper = [[NSDictionary dictionaryWithContentsOfFile:wallpaperPath] mutableCopy];
+    wallpaper[@"identifier"] = @54321;
+    XCTAssertTrue([self writePlist:wallpaper toPath:wallpaperPath]);
+
+    NSDictionary *result = [LBPosterBoardInstaller installExtractedDescriptorTreeAtPath:input
+        descriptorRoot:descriptorRoot error:&error];
+    XCTAssertNil(result);
+    XCTAssertEqual(error.code, 66);
+    XCTAssertEqual([NSFileManager.defaultManager contentsOfDirectoryAtPath:descriptorRoot error:nil].count, 1u);
+    XCTAssertTrue([[NSFileManager defaultManager] fileExistsAtPath:existing]);
+}
+
+- (void)testRefusesDuplicateIdentifiersAcrossExistingDescriptors {
+    NSString *input = [self makeDescriptorGroupWithNames:@[@"Duplicate guard"] missingFiles:[NSSet set]];
+    NSString *descriptorRoot = [self.temporaryRoot stringByAppendingPathComponent:@"PosterBoard/59/Extensions/com.apple.WallpaperKit.CollectionsPoster/descriptors"];
+    NSError *error = nil;
+    XCTAssertTrue([[NSFileManager defaultManager] createDirectoryAtPath:descriptorRoot withIntermediateDirectories:YES attributes:nil error:&error], @"%@", error);
+    NSString *fixture = [[input stringByAppendingPathComponent:@"descriptors"] stringByAppendingPathComponent:@"fixture-1"];
+    for (NSString *name in @[@"existing-a", @"existing-b"]) {
+        XCTAssertTrue([[NSFileManager defaultManager] copyItemAtPath:fixture
+            toPath:[descriptorRoot stringByAppendingPathComponent:name] error:&error], @"%@", error);
+    }
+
+    NSDictionary *result = [LBPosterBoardInstaller installExtractedDescriptorTreeAtPath:input
+        descriptorRoot:descriptorRoot error:&error];
+    XCTAssertNil(result);
+    XCTAssertEqual(error.code, 66);
+    XCTAssertEqual([NSFileManager.defaultManager contentsOfDirectoryAtPath:descriptorRoot error:nil].count, 2u);
+}
+
 - (void)testRefusesToPublishWhenExistingDescriptorHasNoNumericIdentifier {
     NSString *input = [self makeDescriptorGroupWithNames:@[@"Collision guard"] missingFiles:[NSSet set]];
     NSString *descriptorRoot = [self.temporaryRoot stringByAppendingPathComponent:@"PosterBoard/59/Extensions/com.apple.WallpaperKit.CollectionsPoster/descriptors"];

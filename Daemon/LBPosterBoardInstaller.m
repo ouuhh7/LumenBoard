@@ -586,6 +586,121 @@ static BOOL LBCollectDescriptorRoots(NSString *extractedPath, NSMutableArray<NSS
     return YES;
 }
 
+static NSNumber *LBParseExistingNumericIdentifier(id value) {
+    long long parsed = 0;
+    if ([value isKindOfClass:NSNumber.class]) {
+        parsed = [value longLongValue];
+    } else if ([value isKindOfClass:NSString.class]) {
+        NSString *text = [value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        NSScanner *scanner = text.length ? [NSScanner scannerWithString:text] : nil;
+        if (!scanner || ![scanner scanLongLong:&parsed] || !scanner.isAtEnd) return nil;
+    } else {
+        return nil;
+    }
+    if (parsed <= 0 || parsed > 999999) return nil;
+    return @(parsed);
+}
+
+static NSDictionary *LBReadExistingDescriptorPropertyList(NSString *path) {
+    if (!LBIsRegularFile(path)) return nil;
+    NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:path error:nil];
+    unsigned long long size = [attributes[NSFileSize] unsignedLongLongValue];
+    if (size == 0 || size > 1024 * 1024) return nil;
+    NSData *data = [NSData dataWithContentsOfFile:path];
+    id object = data ? [NSPropertyListSerialization propertyListWithData:data
+        options:NSPropertyListImmutable format:nil error:nil] : nil;
+    return [object isKindOfClass:NSDictionary.class] ? object : nil;
+}
+
+static BOOL LBReadExistingDescriptorMetadataIdentifier(NSString *descriptorPath,
+                                                        NSNumber **identifier,
+                                                        NSError **error) {
+    NSMutableSet<NSNumber *> *metadataIdentifiers = [NSMutableSet set];
+    NSUInteger userInfoCount = 0;
+    NSUInteger wallpaperCount = 0;
+    NSDirectoryEnumerator *enumerator = [NSFileManager.defaultManager enumeratorAtPath:descriptorPath];
+    if (!enumerator) {
+        if (error) *error = LBInstallError(66, @"Could not inspect existing PosterBoard descriptor metadata.");
+        return NO;
+    }
+
+    NSString *relative = nil;
+    while ((relative = enumerator.nextObject)) {
+        NSString *full = [descriptorPath stringByAppendingPathComponent:relative];
+        struct stat st;
+        if (lstat(full.fileSystemRepresentation, &st) != 0 ||
+            S_ISLNK(st.st_mode) || (!S_ISDIR(st.st_mode) && !S_ISREG(st.st_mode))) {
+            if (error) *error = LBInstallError(66, [NSString stringWithFormat:
+                @"Unsafe metadata entry in existing PosterBoard descriptor: %@", relative]);
+            return NO;
+        }
+        if (!S_ISREG(st.st_mode)) continue;
+
+        NSString *name = relative.lastPathComponent;
+        if ([name isEqualToString:@"com.apple.posterkit.provider.contents.userInfo"]) {
+            NSDictionary *userInfo = LBReadExistingDescriptorPropertyList(full);
+            NSString *wallpaperName = [userInfo[@"wallpaperRepresentingFileName"] isKindOfClass:NSString.class]
+                ? userInfo[@"wallpaperRepresentingFileName"] : nil;
+            NSNumber *representingID = LBParseExistingNumericIdentifier(userInfo[@"wallpaperRepresentingIdentifier"]);
+            if (!userInfo || !representingID || !wallpaperName.length ||
+                !LBPathIsSafeRelative(wallpaperName) ||
+                [wallpaperName rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound ||
+                [wallpaperName containsString:@":"]) {
+                if (error) *error = LBInstallError(66, [NSString stringWithFormat:
+                    @"Existing PosterBoard descriptor has missing or invalid provider user-info metadata: %@", relative]);
+                return NO;
+            }
+
+            NSString *wallpaperBundle = [full.stringByDeletingLastPathComponent stringByAppendingPathComponent:wallpaperName];
+            NSString *wallpaperPlistPath = [wallpaperBundle stringByAppendingPathComponent:@"Wallpaper.plist"];
+            if (!LBIsDirectory(wallpaperBundle)) {
+                if (error) *error = LBInstallError(66, [NSString stringWithFormat:
+                    @"Existing provider user-info references a missing wallpaper bundle: %@", relative]);
+                return NO;
+            }
+            NSDictionary *wallpaper = LBReadExistingDescriptorPropertyList(wallpaperPlistPath);
+            NSDictionary *assets = [wallpaper[@"assets"] isKindOfClass:NSDictionary.class] ? wallpaper[@"assets"] : nil;
+            NSDictionary *lockAndHome = [assets[@"lockAndHome"] isKindOfClass:NSDictionary.class] ? assets[@"lockAndHome"] : nil;
+            NSDictionary *defaults = [lockAndHome[@"default"] isKindOfClass:NSDictionary.class] ? lockAndHome[@"default"] : nil;
+            NSNumber *wallpaperID = LBParseExistingNumericIdentifier(wallpaper[@"identifier"]);
+            NSNumber *defaultID = LBParseExistingNumericIdentifier(defaults[@"identifier"]);
+            if (!wallpaper || !wallpaperID || !defaultID ||
+                ![representingID isEqualToNumber:wallpaperID] ||
+                ![representingID isEqualToNumber:defaultID]) {
+                if (error) *error = LBInstallError(66, [NSString stringWithFormat:
+                    @"Existing provider user-info and Wallpaper.plist identifiers disagree: %@", relative]);
+                return NO;
+            }
+            [metadataIdentifiers addObject:representingID];
+            userInfoCount++;
+        }
+
+        if ([name caseInsensitiveCompare:@"Wallpaper.plist"] == NSOrderedSame) {
+            NSDictionary *wallpaper = LBReadExistingDescriptorPropertyList(full);
+            NSDictionary *assets = [wallpaper[@"assets"] isKindOfClass:NSDictionary.class] ? wallpaper[@"assets"] : nil;
+            NSDictionary *lockAndHome = [assets[@"lockAndHome"] isKindOfClass:NSDictionary.class] ? assets[@"lockAndHome"] : nil;
+            NSDictionary *defaults = [lockAndHome[@"default"] isKindOfClass:NSDictionary.class] ? lockAndHome[@"default"] : nil;
+            NSNumber *wallpaperID = LBParseExistingNumericIdentifier(wallpaper[@"identifier"]);
+            NSNumber *defaultID = LBParseExistingNumericIdentifier(defaults[@"identifier"]);
+            if (!wallpaper || !wallpaperID || !defaultID || ![wallpaperID isEqualToNumber:defaultID]) {
+                if (error) *error = LBInstallError(66, [NSString stringWithFormat:
+                    @"Existing Wallpaper.plist has missing or inconsistent numeric identifiers: %@", relative]);
+                return NO;
+            }
+            [metadataIdentifiers addObject:wallpaperID];
+            wallpaperCount++;
+        }
+    }
+
+    if (userInfoCount == 0 || wallpaperCount == 0 || metadataIdentifiers.count != 1) {
+        if (error) *error = LBInstallError(66,
+            @"Existing PosterBoard descriptor metadata is absent, ambiguous, or contains conflicting numeric identifiers.");
+        return NO;
+    }
+    if (identifier) *identifier = metadataIdentifiers.anyObject;
+    return YES;
+}
+
 static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot,
                                              NSMutableSet<NSNumber *> *used,
                                              NSError **error) {
@@ -612,16 +727,44 @@ static BOOL LBReadExistingNumericIdentifiers(NSString *descriptorRoot,
             return NO;
         }
         if (!S_ISDIR(st.st_mode)) continue;
-        NSString *text = LBReadTrimmedString([path stringByAppendingPathComponent:@"com.apple.posterkit.provider.descriptor.identifier"]);
-        NSScanner *scanner = text.length ? [NSScanner scannerWithString:text] : nil;
-        long long value = 0;
-        if (!scanner || ![scanner scanLongLong:&value] || !scanner.isAtEnd || value <= 0) {
-            if (error) *error = LBInstallError(66, [NSString stringWithFormat:
-                @"Cannot establish the numeric wallpaper identifier for existing PosterBoard descriptor %@; refusing to risk an identifier collision.",
-                entry]);
+
+        NSString *rootIDPath = [path stringByAppendingPathComponent:@"com.apple.posterkit.provider.descriptor.identifier"];
+        struct stat rootIDStat;
+        NSNumber *rootID = nil;
+        if (lstat(rootIDPath.fileSystemRepresentation, &rootIDStat) == 0) {
+            if (S_ISLNK(rootIDStat.st_mode) || !S_ISREG(rootIDStat.st_mode) || rootIDStat.st_size > 128) {
+                if (error) *error = LBInstallError(66, [NSString stringWithFormat:
+                    @"Existing PosterBoard descriptor has an unsafe numeric identifier file: %@", entry]);
+                return NO;
+            }
+            if (rootIDStat.st_size > 0) {
+                rootID = LBParseExistingNumericIdentifier(LBReadTrimmedString(rootIDPath));
+                if (!rootID) {
+                    if (error) *error = LBInstallError(66, [NSString stringWithFormat:
+                        @"Existing PosterBoard descriptor has an invalid numeric root identifier: %@", entry]);
+                    return NO;
+                }
+            }
+        } else if (errno != ENOENT) {
+            if (error) *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
             return NO;
         }
-        [used addObject:@(value)];
+
+        NSNumber *metadataID = nil;
+        if (!LBReadExistingDescriptorMetadataIdentifier(path, &metadataID, error)) return NO;
+        if (rootID && ![rootID isEqualToNumber:metadataID]) {
+            if (error) *error = LBInstallError(66, [NSString stringWithFormat:
+                @"Existing PosterBoard descriptor root identifier conflicts with its internal metadata: %@", entry]);
+            return NO;
+        }
+        NSNumber *resolvedID = rootID ?: metadataID;
+        if ([used containsObject:resolvedID]) {
+            if (error) *error = LBInstallError(66, [NSString stringWithFormat:
+                @"Duplicate numeric wallpaper identifier %@ already exists in the PosterBoard descriptor store; refusing to allocate around an inconsistent store.",
+                resolvedID]);
+            return NO;
+        }
+        [used addObject:resolvedID];
     }
     return YES;
 }
